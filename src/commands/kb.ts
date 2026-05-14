@@ -95,8 +95,7 @@ async function kbTree(notebook: string | undefined, json: boolean) {
 	for (const col of collections) {
 		const attrs = col.attributes || {};
 		const name = attrs.name || col.id;
-		const docCount = attrs.documentCount || '?';
-		console.log(`  ${name}  (${docCount} docs)`);
+		console.log(`  ${name}`);
 	}
 }
 
