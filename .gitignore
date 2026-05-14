@@ -1,4 +1,4 @@
 dist/
 node_modules/
-.bun-build
+.*.bun-build
 .DS_Store
