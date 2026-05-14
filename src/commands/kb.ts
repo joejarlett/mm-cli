@@ -157,7 +157,7 @@ async function kbCollectionsList(json: boolean) {
 	const collections = data?.data || [];
 	for (const col of collections) {
 		const attrs = col.attributes || {};
-		console.log(`  ${attrs.name || col.id}  (${attrs.documentCount || '?'} docs)`);
+		console.log(`  ${attrs.name || col.id}`);
 	}
 }
 
