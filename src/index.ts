@@ -16,6 +16,8 @@ import { status } from './commands/status';
 import { kbDispatch } from './commands/kb';
 import { crmDispatch } from './commands/crm';
 import { emailDispatch } from './commands/email';
+import { sttDispatch } from './commands/stt';
+import { ttsDispatch } from './commands/tts';
 
 const VERSION = '0.1.0';
 
@@ -31,6 +33,9 @@ Usage:
   mm kb <command> [args...]    Knowledge Base commands
   mm crm <command> [args...]   CRM commands
   mm email <command> [args...] Platform email log (admin only)
+  mm stt <file>                Transcribe audio (wav/mp3/m4a/…)
+  mm tts "<text>" [--out f] [--play] [--voice id] [--format wav|mp3]
+                                Synthesise speech
 
 KB Commands:
   mm kb find <query>           Search documents
@@ -117,6 +122,12 @@ async function main() {
 				break;
 			case 'email':
 				await emailDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
+			case 'stt':
+				await sttDispatch(positional.slice(1), flags);
+				break;
+			case 'tts':
+				await ttsDispatch(positional.slice(1));
 				break;
 			default:
 				console.error(`Unknown command: ${command}`);
