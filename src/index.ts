@@ -15,6 +15,7 @@ import { login, logout, whoami } from './commands/login';
 import { status } from './commands/status';
 import { kbDispatch } from './commands/kb';
 import { crmDispatch } from './commands/crm';
+import { emailDispatch } from './commands/email';
 
 const VERSION = '0.1.0';
 
@@ -29,6 +30,7 @@ Usage:
 
   mm kb <command> [args...]    Knowledge Base commands
   mm crm <command> [args...]   CRM commands
+  mm email <command> [args...] Platform email log (admin only)
 
 KB Commands:
   mm kb find <query>           Search documents
@@ -38,8 +40,22 @@ KB Commands:
   mm kb collections            List collections
 
 CRM Commands:
-  mm crm contacts list         List contacts
-  mm crm projects list         List projects
+  mm crm surface                Today's priorities
+  mm crm contacts               List contacts
+  mm crm contacts find <q>      Search contacts
+  mm crm projects               List projects
+  mm crm log "<text>"           Log an interaction
+  mm crm context <person>       Person context
+  mm crm peek <id>              Preview anything
+  mm crm read <id>              Full content
+  mm crm find <query>           Search (shorthand)
+
+Email Commands (admin only):
+  mm email list [--status=…] [--template=…] [--q=…]
+                                List outbound emails, newest first
+  mm email get <id>             Show full detail (incl. body text)
+  mm email resend <id>          Resend; creates a new row referencing
+                                the original via parent_id
 
 Flags:
   --json                       Output as JSON
@@ -94,6 +110,9 @@ async function main() {
 				break;
 			case 'crm':
 				await crmDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
+			case 'email':
+				await emailDispatch(positional[1] || '', positional.slice(2), flags);
 				break;
 			default:
 				console.error(`Unknown command: ${command}`);
