@@ -18,6 +18,8 @@ import { crmDispatch } from './commands/crm';
 import { emailDispatch } from './commands/email';
 import { sttDispatch } from './commands/stt';
 import { ttsDispatch } from './commands/tts';
+import { v2Dispatch } from './commands/v2';
+import { manifestDispatch } from './commands/manifest';
 
 const VERSION = '0.1.0';
 
@@ -36,6 +38,11 @@ Usage:
   mm stt <file>                Transcribe audio (wav/mp3/m4a/…)
   mm tts "<text>" [--out f] [--play] [--voice id] [--format wav|mp3]
                                 Synthesise speech
+
+  mm manifest [<app>]          List apps / show one app's full surface
+  mm v2 <app> <feature.action> [json] [--instance <uuid>]
+                                Generic dispatcher — call any app's
+                                /api/v2 endpoint with any action.
 
 KB Commands:
   mm kb find <query>           Search documents
@@ -85,8 +92,19 @@ async function main() {
 	// flags (e.g. `mm email list --status=sent`) need to pass through to
 	// the command's own parser. Previous behaviour was to strip every
 	// `--*` arg, which swallowed filter flags silently.
-	const GLOBAL_FLAGS = new Set(['--json', '--help', '-h', '--version', '-v']);
-	const positional = args.filter((a) => !GLOBAL_FLAGS.has(a));
+	const GLOBAL_FLAGS = new Set(['--json', '--help', '-h', '--version', '-v', '--refresh', '--no-validate']);
+	const positional = args.filter((a, i) => {
+		if (GLOBAL_FLAGS.has(a)) return false;
+		// Drop --instance plus its value (next arg).
+		if (a === '--instance') return false;
+		if (i > 0 && args[i - 1] === '--instance') return false;
+		return true;
+	});
+
+	function getFlagValue(allArgs: string[], flag: string): string | undefined {
+		const i = allArgs.indexOf(flag);
+		return i >= 0 && i + 1 < allArgs.length ? allArgs[i + 1] : undefined;
+	}
 
 	if (flags.version) {
 		console.log(`mm v${VERSION}`);
@@ -128,6 +146,21 @@ async function main() {
 				break;
 			case 'tts':
 				await ttsDispatch(positional.slice(1));
+				break;
+			case 'v2':
+				// Generic dispatcher: mm v2 <app> <feature.action> [json] [--instance <uuid>] [--no-validate]
+				await v2Dispatch(positional.slice(1), {
+					json: flags.json,
+					instance: getFlagValue(args, '--instance'),
+					noValidate: args.includes('--no-validate')
+				});
+				break;
+			case 'manifest':
+				// mm manifest [<app>] [--refresh]
+				await manifestDispatch(positional.slice(1), {
+					json: flags.json,
+					refresh: args.includes('--refresh')
+				});
 				break;
 			default:
 				console.error(`Unknown command: ${command}`);
