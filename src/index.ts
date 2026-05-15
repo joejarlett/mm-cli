@@ -76,8 +76,12 @@ async function main() {
 		json: args.includes('--json')
 	};
 
-	// Filter out flags from positional args
-	const positional = args.filter((a) => !a.startsWith('--') && a !== '-h' && a !== '-v');
+	// Strip only the known global flags from positional args. Per-command
+	// flags (e.g. `mm email list --status=sent`) need to pass through to
+	// the command's own parser. Previous behaviour was to strip every
+	// `--*` arg, which swallowed filter flags silently.
+	const GLOBAL_FLAGS = new Set(['--json', '--help', '-h', '--version', '-v']);
+	const positional = args.filter((a) => !GLOBAL_FLAGS.has(a));
 
 	if (flags.version) {
 		console.log(`mm v${VERSION}`);
