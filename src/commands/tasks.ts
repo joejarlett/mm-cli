@@ -3,10 +3,14 @@
  *
  *   mm tasks                           due in next 7 days, all lists (= `list`)
  *   mm tasks list [--days N] [--all]
- *   mm tasks add "Buy milk" [--due 2026-05-19] [--list "Home"] [--notes "..."]
+ *   mm tasks add "Buy milk" [--due "tomorrow"] [--list "Home"] [--notes "..."]
  *   mm tasks done <task-id> [--list-id <list-id>]
+ *
+ * `--due` accepts natural language ("tomorrow", "next friday") or
+ * ISO `YYYY-MM-DD`. Google Tasks stores due as a date only.
  */
 import { hubApi } from '../hub';
+import { parseNlDate } from '../nl-date';
 
 type Task = {
 	id: string;
@@ -121,7 +125,17 @@ async function tasksAdd(args: string[], json: boolean) {
 		process.exit(1);
 	}
 	const payload: Record<string, unknown> = { title };
-	if (flags.due) payload.due = flags.due;
+	let dueDisplay: string | undefined;
+	if (flags.due) {
+		try {
+			const parsed = parseNlDate(flags.due);
+			payload.due = parsed.iso;
+			dueDisplay = parsed.iso;
+		} catch (err) {
+			console.error(`✗ ${err instanceof Error ? err.message : err}`);
+			process.exit(1);
+		}
+	}
 	if (flags.list) payload.listTitle = flags.list;
 	if (flags['list-id']) payload.listId = flags['list-id'];
 	if (flags.notes) payload.notes = flags.notes;
@@ -134,7 +148,7 @@ async function tasksAdd(args: string[], json: boolean) {
 	}
 	console.log(`✓ Added to ${data.listTitle}`);
 	console.log(`  ${title}`);
-	if (flags.due) console.log(`  due ${flags.due}`);
+	if (dueDisplay) console.log(`  due ${dueDisplay}`);
 }
 
 async function tasksDone(args: string[], json: boolean) {

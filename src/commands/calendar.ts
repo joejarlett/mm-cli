@@ -3,13 +3,14 @@
  *
  *   mm calendar                 next 7 days, agenda (alias for `list`)
  *   mm calendar list [--days N] [--q "search"]
- *   mm calendar new --title "X" --when "2026-05-20 14:00" [--end "15:00"]
+ *   mm calendar new --title "X" --when "tomorrow 14:00" [--end "15:00"]
  *                   [--at "Brunel"] [--invite a@x.com,b@y.com] [--describe "..."]
  *
- * Times use your machine's local timezone unless you embed an offset
- * in the string (e.g. "2026-05-20T14:00+01:00").
+ * `--when` accepts natural language ("tomorrow 14:00", "next monday 10am",
+ * "in 2 hours") or ISO ("2026-05-20 14:00"). Parsed locally in your TZ.
  */
 import { hubApi } from '../hub';
+import { parseNlDateTime } from '../nl-date';
 
 type EventRow = {
 	id: string;
@@ -124,7 +125,31 @@ async function calendarNew(args: string[], json: boolean) {
 	const title = flags.title;
 	const when = flags.when;
 	if (!title || !when) {
-		console.error('Usage: mm calendar new --title "X" --when "2026-05-20 14:00" [--end "15:00"] [--at "..."] [--invite a@x.com,b@y.com] [--describe "..."]');
+		console.error('Usage: mm calendar new --title "X" --when "tomorrow 14:00" [--end "15:00"] [--at "..."] [--invite a@x.com,b@y.com] [--describe "..."]');
+		process.exit(1);
+	}
+
+	let parsedWhen: string;
+	let parsedEnd: string | undefined;
+	try {
+		const start = parseNlDateTime(when);
+		parsedWhen = start.iso;
+		if (flags.end) {
+			// `--end` is permitted as a bare time ("15:00") relative to the
+			// parsed start date, or as its own NL/ISO string.
+			const justTime = flags.end.match(/^(\d{1,2}):(\d{2})$/);
+			if (justTime) {
+				const endDate = new Date(start.date);
+				endDate.setHours(Number(justTime[1]), Number(justTime[2]), 0, 0);
+				parsedEnd = parseNlDateTime(
+					`${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')} ${flags.end}`
+				).iso;
+			} else {
+				parsedEnd = parseNlDateTime(flags.end).iso;
+			}
+		}
+	} catch (err) {
+		console.error(`✗ ${err instanceof Error ? err.message : err}`);
 		process.exit(1);
 	}
 
@@ -136,8 +161,8 @@ async function calendarNew(args: string[], json: boolean) {
 
 	const payload: Record<string, unknown> = {
 		title,
-		when,
-		...(flags.end ? { end: flags.end } : {}),
+		when: parsedWhen,
+		...(parsedEnd ? { end: parsedEnd } : {}),
 		...(flags.at ? { location: flags.at } : {}),
 		...(flags.describe ? { description: flags.describe } : {}),
 		...(attendees.length ? { attendees } : {}),

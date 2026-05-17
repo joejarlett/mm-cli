@@ -12,5 +12,8 @@
 	},
 	"bin": {
 		"mm": "./src/index.ts"
+	},
+	"dependencies": {
+		"chrono-node": "^2.9.1"
 	}
 }
