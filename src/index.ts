@@ -16,6 +16,9 @@ import { status } from './commands/status';
 import { kbDispatch } from './commands/kb';
 import { crmDispatch } from './commands/crm';
 import { emailDispatch } from './commands/email';
+import { calendarDispatch } from './commands/calendar';
+import { tasksDispatch } from './commands/tasks';
+import { driveDispatch } from './commands/drive';
 import { sttDispatch } from './commands/stt';
 import { ttsDispatch } from './commands/tts';
 import { v2Dispatch } from './commands/v2';
@@ -35,6 +38,9 @@ Usage:
   mm kb <command> [args...]    Knowledge Base commands
   mm crm <command> [args...]   CRM commands
   mm email <command> [args...] Platform email log (admin only)
+  mm calendar [list|new] [args] Google Calendar — agenda + quick create
+  mm tasks [list|add|done] [args] Google Tasks — list, add, complete
+  mm drive [ls|doc] [args]      Google Drive — list + doc-from-markdown
   mm stt <file>                Transcribe audio (wav/mp3/m4a/…)
   mm tts "<text>" [--out f] [--play] [--voice id] [--format wav|mp3]
                                 Synthesise speech
@@ -61,6 +67,26 @@ CRM Commands:
   mm crm peek <id>              Preview anything
   mm crm read <id>              Full content
   mm crm find <query>           Search (shorthand)
+
+Calendar Commands:
+  mm calendar                   Agenda for the next 7 days
+  mm calendar list [--days N] [--q "search"]
+                                List events in a date range
+  mm calendar new --title "X" --when "2026-05-20 14:00" [--end "15:00"]
+       [--at "place"] [--invite a@x.com,b@y.com] [--describe "..."]
+
+Tasks Commands:
+  mm tasks                      Pending tasks due in next 7 days
+  mm tasks list [--days N] [--all]
+  mm tasks add "<title>" [--due YYYY-MM-DD] [--list "List name"] [--notes "..."]
+  mm tasks done <task-id> --list-id <list-id>
+                                (run "mm tasks" to see ids)
+
+Drive Commands:
+  mm drive ls [--q "name contains 'invoice'"] [--max N]
+  mm drive doc <name> --file path.md
+                                Create a native Google Doc converted
+                                from local markdown (also accepts stdin).
 
 Email Commands (admin only):
   mm email list [--status=…] [--template=…] [--q=…]
@@ -145,6 +171,15 @@ async function main() {
 				break;
 			case 'email':
 				await emailDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
+			case 'calendar':
+				await calendarDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
+			case 'tasks':
+				await tasksDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
+			case 'drive':
+				await driveDispatch(positional[1] || '', positional.slice(2), flags);
 				break;
 			case 'stt':
 				await sttDispatch(positional.slice(1), flags);
