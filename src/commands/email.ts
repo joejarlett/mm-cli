@@ -80,6 +80,10 @@ export async function emailDispatch(
 			return emailGet(args[0] || '', json);
 		case 'resend':
 			return emailResend(args[0] || '', json);
+		case 'send':
+			return emailSend(args, json);
+		case 'draft':
+			return emailSend(args, json, { draftOnly: true });
 		default:
 			console.error(`Unknown command: mm email ${command}`);
 			console.error('Run `mm --help` for available commands.');
@@ -164,6 +168,110 @@ async function emailGet(id: string, json: boolean) {
 	console.log('');
 	console.log('--- Text body ---');
 	console.log(data.bodyText);
+}
+
+function parseSendFlags(args: string[]): {
+	to?: string;
+	subject?: string;
+	body?: string;
+	text?: string;
+	template?: string;
+} {
+	const out: Record<string, string> = {};
+	// Support both `--key=value` and `--key value` forms.
+	for (let i = 0; i < args.length; i++) {
+		const a = args[i];
+		const eq = a.match(/^--(to|subject|body|text|template)=(.+)$/s);
+		if (eq) {
+			out[eq[1]] = eq[2];
+			continue;
+		}
+		const flag = a.match(/^--(to|subject|body|text|template)$/);
+		if (flag && i + 1 < args.length) {
+			out[flag[1]] = args[++i];
+		}
+	}
+	return out as {
+		to?: string;
+		subject?: string;
+		body?: string;
+		text?: string;
+		template?: string;
+	};
+}
+
+function stripHtml(s: string): string {
+	return s
+		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+		.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+		.replace(/<[^>]+>/g, '')
+		.replace(/&nbsp;/g, ' ')
+		.replace(/&amp;/g, '&')
+		.replace(/&lt;/g, '<')
+		.replace(/&gt;/g, '>')
+		.replace(/&quot;/g, '"')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+/**
+ * `mm email send` and `mm email draft`.
+ *
+ * Drives the same hub RPC the admin compose page uses:
+ *   1. `email.create`      → writes a draft row to `mm.public.email`
+ *   2. `email.send`        → flips to queued → sent | failed
+ *      (when `GWS_GATEWAY_URL` is configured on the hub, this routes
+ *      through google-workspace-gateway → Gmail API; otherwise SMTP.)
+ *
+ * `mm email draft` does step 1 only. Useful to preview-via-`mm email get`
+ * before firing.
+ */
+async function emailSend(args: string[], json: boolean, opts: { draftOnly?: boolean } = {}) {
+	const flags = parseSendFlags(args);
+	if (!flags.to || !flags.subject || !flags.body) {
+		console.error(
+			'Usage: mm email send --to <addr> --subject <s> --body <html> [--text <plain>] [--template <name>]'
+		);
+		console.error('       mm email draft …same args…    (creates a draft, does not send)');
+		process.exit(1);
+	}
+
+	const created = (await hubApi('email', 'create', {
+		to: flags.to,
+		subject: flags.subject,
+		html: flags.body,
+		text: flags.text ?? stripHtml(flags.body),
+		template: flags.template
+	})) as { id: string };
+
+	if (opts.draftOnly) {
+		if (json) {
+			console.log(JSON.stringify({ id: created.id, status: 'draft' }, null, 2));
+			return;
+		}
+		console.log(`✓ Draft saved: ${created.id}`);
+		console.log(`  Preview: mm email get ${created.id}`);
+		console.log(`  Send:    mm email send <re-run> or via /admin/emails/${created.id}`);
+		return;
+	}
+
+	const sent = (await hubApi('email', 'send', { id: created.id })) as {
+		success: boolean;
+		error?: string;
+	};
+
+	if (json) {
+		console.log(JSON.stringify({ id: created.id, ...sent }, null, 2));
+		return;
+	}
+	if (sent.success) {
+		console.log(`✓ Sent. Row: ${created.id}`);
+		console.log(`  Detail: mm email get ${created.id}`);
+	} else {
+		console.log(`✗ Created row ${created.id} but send failed:`);
+		console.log(`  ${sent.error ?? 'unknown'}`);
+		process.exit(1);
+	}
 }
 
 async function emailResend(id: string, json: boolean) {

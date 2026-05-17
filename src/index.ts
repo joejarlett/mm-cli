@@ -66,6 +66,11 @@ Email Commands (admin only):
   mm email list [--status=…] [--template=…] [--q=…]
                                 List outbound emails, newest first
   mm email get <id>             Show full detail (incl. body text)
+  mm email send --to <addr> --subject <s> --body <html> [--text <plain>] [--template <name>]
+                                Compose + send through the hub. Routes
+                                via gws-gateway when GWS_GATEWAY_URL is
+                                set server-side; otherwise SMTP.
+  mm email draft <same args>    Create a draft without sending.
   mm email resend <id>          Resend; creates a new row referencing
                                 the original via parent_id
 
