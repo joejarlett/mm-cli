@@ -90,6 +90,12 @@ export async function emailDispatch(
 			return emailSend(args, json);
 		case 'draft':
 			return emailSend(args, json, { draftOnly: true });
+		case 'search':
+		case 'find':
+			return inboxSearch(args, json);
+		case 'read':
+		case 'open':
+			return inboxRead(args[0] || '', json);
 		default:
 			console.error(`Unknown command: mm email ${command}`);
 			console.error('Try `mm email help`.');
@@ -98,23 +104,33 @@ export async function emailDispatch(
 }
 
 export function printEmailHelp() {
-	console.log(`mm email — User's linked Gmail account(s)
+	console.log(`mm email — Gmail inbox + platform email log
 
-Subcommands:
-  list | ls               List recent messages (filter with --q)
-  get | show <id>         Read a single message
-  send                    Send a new message (composes inline or via --body)
+Inbox (your linked Google account):
+  search | find "<q>"     Search inbox with Gmail query syntax
+                          (from:, subject:, after:YYYY/MM/DD, label:, …)
+  read | open <id>        Read full message body + headers
+
+Send (via Gmail through gateway):
+  send                    Send a new message
   draft                   Same as send but saves a draft only
-  resend <id>             Resend a previous message
+  resend <id>             Resend a previous platform email
+
+Platform outbound log (admin only — meta-me.uk system mail):
+  list | ls               List recent platform-sent messages
+  get | show <id>         Read a single platform-log row
+
+Search flags:
+  --q="<query>"           Gmail query string (or pass as bare arg)
+  --max=N                 Max results (default 20, cap 50)
+  --account <slug|email>  Pick a linked Google account
 
 Send/draft flags:
   --to <email>            Recipient (required)
-  --cc <email>            CC
-  --bcc <email>           BCC
   --subject "<text>"      Subject line
-  --body "<text>"         Body (or use --html for HTML body)
-  --from <alias>          Send-as alias on this account
-  --account <slug>        Pick a linked Google account
+  --body "<text>"         Body (HTML or plain)
+  --text <plain>          Plain-text body (default: stripped from --body)
+  --template <name>       Template name (admin path)
   --json                  Parseable output`);
 }
 
@@ -321,6 +337,106 @@ async function emailResend(id: string, json: boolean) {
 		console.log(`✗ Resend row ${data.newId} created but SMTP failed:`);
 		console.log(`  ${data.error ?? 'unknown'}`);
 	}
+}
+
+// ─── Inbox (Gmail through gateway) ────────────────────────────────────
+
+type InboxMessage = {
+	id: string;
+	threadId: string;
+	subject: string;
+	from: string;
+	to: string;
+	date: string;
+	snippet: string;
+	unread: boolean;
+};
+
+type InboxSearchResponse = { messages: InboxMessage[]; accountSlug: string | null };
+
+type InboxFullMessage = InboxMessage & { cc: string; body: string; labels: string[] };
+
+function parseInboxFlags(args: string[]): {
+	q?: string;
+	maxResults?: number;
+	accountSlug?: string;
+} {
+	const out: Record<string, string | number> = {};
+	const bareQ: string[] = [];
+	for (let i = 0; i < args.length; i++) {
+		const a = args[i];
+		const kv = a.match(/^--(q|max|account)=(.+)$/s);
+		if (kv) {
+			const k = kv[1] === 'max' ? 'maxResults' : kv[1] === 'account' ? 'accountSlug' : 'q';
+			out[k] = kv[1] === 'max' ? Number(kv[2]) : kv[2];
+			continue;
+		}
+		const flag = a.match(/^--(q|max|account)$/);
+		if (flag && i + 1 < args.length) {
+			const k = flag[1] === 'max' ? 'maxResults' : flag[1] === 'account' ? 'accountSlug' : 'q';
+			out[k] = flag[1] === 'max' ? Number(args[++i]) : args[++i];
+			continue;
+		}
+		if (!a.startsWith('--')) bareQ.push(a);
+	}
+	if (!out.q && bareQ.length) out.q = bareQ.join(' ');
+	return out as { q?: string; maxResults?: number; accountSlug?: string };
+}
+
+async function inboxSearch(args: string[], json: boolean) {
+	const flags = parseInboxFlags(args);
+	const data = (await hubApi('email', 'search', flags)) as InboxSearchResponse;
+	if (json) {
+		console.log(JSON.stringify(data, null, 2));
+		return;
+	}
+	const msgs = data?.messages ?? [];
+	if (msgs.length === 0) {
+		console.log('No messages match.');
+		return;
+	}
+	for (const m of msgs) {
+		const mark = m.unread ? '●' : ' ';
+		const when = fmtRelative(m.date);
+		const from = truncate(stripEmail(m.from), 28);
+		const subj = truncate(m.subject || '(no subject)', 60);
+		console.log(`${mark} ${m.id}  ${when.padEnd(8)}  ${from.padEnd(28)}  ${subj}`);
+		if (m.snippet) console.log(`             ${truncate(m.snippet, 100)}`);
+	}
+	if (data.accountSlug) {
+		console.log('');
+		console.log(`  (account: ${data.accountSlug})`);
+	}
+}
+
+async function inboxRead(id: string, json: boolean) {
+	if (!id) {
+		console.error('Usage: mm email read <id>');
+		process.exit(1);
+	}
+	const data = (await hubApi('email', 'read', { id })) as InboxFullMessage;
+	if (json) {
+		console.log(JSON.stringify(data, null, 2));
+		return;
+	}
+	console.log(`From:    ${data.from}`);
+	console.log(`To:      ${data.to}`);
+	if (data.cc) console.log(`Cc:      ${data.cc}`);
+	console.log(`Date:    ${data.date}`);
+	console.log(`Subject: ${data.subject}`);
+	if (data.labels?.length) console.log(`Labels:  ${data.labels.join(', ')}`);
+	console.log('');
+	console.log(data.body || data.snippet || '(empty)');
+}
+
+function stripEmail(s: string): string {
+	const m = s.match(/^(.+?)\s*<.+>$/);
+	return m ? m[1].replace(/^"|"$/g, '') : s;
+}
+
+function truncate(s: string, max: number): string {
+	if (s.length <= max) return s;
+	return s.slice(0, max - 1) + '…';
 }
 
 function fmtRelative(iso: string): string {
