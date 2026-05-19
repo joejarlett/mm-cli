@@ -23,6 +23,15 @@ import { sttDispatch } from './commands/stt';
 import { ttsDispatch } from './commands/tts';
 import { v2Dispatch } from './commands/v2';
 import { manifestDispatch } from './commands/manifest';
+import {
+	sqlDispatch,
+	appsDispatch,
+	appDispatch,
+	healthDispatch,
+	errorsDispatch,
+	errorDispatch,
+} from './commands/hub';
+import { shutdown as shutdownDb } from './db';
 
 const VERSION = '0.1.0';
 
@@ -202,6 +211,25 @@ async function main() {
 					refresh: args.includes('--refresh')
 				});
 				break;
+			// ─── Hub-admin (ported from old mm) ───
+			case 'sql':
+				await sqlDispatch(positional.slice(1), { json: flags.json });
+				break;
+			case 'apps':
+				await appsDispatch(positional.slice(1), { json: flags.json });
+				break;
+			case 'app':
+				await appDispatch(positional.slice(1), { json: flags.json });
+				break;
+			case 'health':
+				await healthDispatch(positional.slice(1), { json: flags.json });
+				break;
+			case 'errors':
+				await errorsDispatch(positional.slice(1), { ...flags });
+				break;
+			case 'error':
+				await errorDispatch(positional.slice(1), { ...flags });
+				break;
 			default:
 				console.error(`Unknown command: ${command}`);
 				console.error('Run `mm --help` for available commands.');
@@ -210,6 +238,10 @@ async function main() {
 	} catch (err: any) {
 		console.error(`❌ ${err.message}`);
 		process.exit(1);
+	} finally {
+		// Close any DB connection opened by hub commands so the process
+		// exits cleanly. No-op if `db()` was never called.
+		await shutdownDb();
 	}
 }
 
