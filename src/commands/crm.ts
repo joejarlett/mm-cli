@@ -1,8 +1,18 @@
 /**
  * mm crm — CRM commands.
  *
- * Dispatches to CRM v2's /api/rpc endpoint using the same
- * feature/action/payload POST format as KB.
+ * Dispatches to CRM v2's /api/rpc endpoint.
+ *
+ * Intuitive surface (core verbs only):
+ *   mm crm surface               Today's priorities
+ *   mm crm contacts [find <q>]   List contacts or search
+ *   mm crm projects              List projects
+ *   mm crm log "<text>"          Log an interaction
+ *   mm crm context <person>      Person context
+ *   mm crm peek <id>             Preview anything
+ *   mm crm read <id>             Full content
+ *
+ * Escape hatch: mm crm rpc <feature> <action> [k=v ...]
  */
 
 import { loadAuth } from '../auth';
@@ -34,136 +44,212 @@ async function crmApi(feature: string, action: string, payload?: Record<string, 
 	return res.json();
 }
 
+export function printCrmHelp() {
+	console.log(`mm crm — CRM (crm-v2)
+
+Subcommands:
+  surface [key=value …]   What's worth attention right now
+  contacts                List/tree your contacts
+  contacts find <query>   Search contacts
+  projects                List projects
+  log <args…>             Log an interaction
+  context <id>            Full contact profile + recent activity
+  peek <id>               Quick preview of a node (contact/project/…)
+  read <id>               Full read of a node
+  find <query>            Search across the CRM
+  rpc <feature.action> [json]
+                          Raw RPC against the CRM's /api/v2
+
+Add --json for parseable output. Auth via \`mm login\`.`);
+}
+
 export async function crmDispatch(command: string, args: string[], flags: { json?: boolean }) {
 	const json = flags?.json || false;
 
 	switch (command) {
-		// Orient
-		case 'workspace':
-		case 'ws':
-			return await crmPassThrough('workspace', args, json);
-		case 'status':
-			return await crmStatus(json);
-		case 'tree':
-			return await crmPassThrough('contacts', ['tree', ...args], json);
+		case '':
+		case 'help':
+		case '--help':
+		case '-h':
+			printCrmHelp();
+			return;
 
-		// Read
-		case 'peek':
-			return await crmSingle('peek', args[0], json);
-		case 'read':
-			return await crmSingle('read', args[0], json);
-		case 'context':
-			return await crmSingle('context', args[0], json);
-		case 'find':
-			return await crmFind(args[0] || '', json);
 		case 'surface':
-			return await crmPassThrough('contacts', ['surface', ...args], json);
+			return await crmSurface(args, json);
 
-		// Write
-		case 'capture':
-		case 'log':
-			return await crmCapture(args, json);
-
-		// Lists
 		case 'contacts':
-			return await crmPassThrough('contacts', args, json);
+			if (args[0] === 'find') return await crmFind(args.slice(1).join(' '), json);
+			return await crmTree(json);
+
 		case 'projects':
-			return await crmPassThrough('projects', args, json);
-		case 'persons':
-			return await crmPassThrough('persons', args, json);
+			return await crmProjects(json);
+
+		case 'log':
+			return await crmLog(args, json);
+
+		case 'context':
+			return await crmContext(args[0], json);
+
+		case 'peek':
+			return await crmPeek(args[0], json);
+
+		case 'read':
+			return await crmRead(args[0], json);
+
+		case 'find':
+			return await crmFind(args.join(' '), json);
+
+		case 'rpc':
+			return await crmRpc(args, json);
 
 		default:
-			// Generic pass-through
-			return await crmPassThrough(command, args, json);
+			console.error(`Unknown command: mm crm ${command}`);
+			console.error('Try `mm crm help` for the full list.');
+			process.exit(1);
 	}
 }
 
-async function crmStatus(json: boolean) {
-	try {
-		const data = await crmApi('contacts', 'tree');
-		if (json) {
-			console.log(JSON.stringify(data, null, 2));
-			return;
+// ─── Surface ───────────────────────────────────────────────────────────
+
+async function crmSurface(args: string[], json: boolean) {
+	const payload: Record<string, string> = {};
+	for (const arg of args) {
+		const eq = arg.indexOf('=');
+		if (eq > 0) payload[arg.slice(0, eq)] = arg.slice(eq + 1);
+	}
+	const limit = payload.limit ? Number(payload.limit) : undefined;
+	const data = await crmApi('surface', 'list', limit ? { limit } : {});
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
+	const meta = data?.meta || {};
+	if (meta?.emptyState) { console.log('All quiet. Nothing to surface.'); return; }
+
+	for (const section of meta?.sections || []) {
+		console.log(`## ${section.title} (${section.items?.length || 0})`);
+		for (const item of section.items || []) {
+			const who = item.person?.title && item.person.title !== item.title
+				? ` — with ${item.person.title}` : '';
+			console.log(`- **${item.title}** [${item.reason}]${who}`);
 		}
-		console.log(JSON.stringify(data, null, 2));
-	} catch (err: any) {
-		// Fallback: try basic status
-		console.log('CRM v2 API is running');
-		console.log('Available commands: mm crm contacts list, mm crm find "query", mm crm capture "text"');
+		console.log('');
+	}
+	if (meta?.spilloverCount) console.log(`(+${meta.spilloverCount} more below capacity cut)`);
+}
+
+// ─── Contacts (tree) ───────────────────────────────────────────────────
+
+async function crmTree(json: boolean) {
+	const data = await crmApi('tree', 'show');
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
+	const meta = data?.meta || {};
+	const counts = meta?.counts || {};
+	console.log(Object.entries(counts).map(([k, v]) => `${v} ${k}`).join(' · '));
+	for (const c of meta?.contacts || []) {
+		const touch = c.lastMeaningfulTouch ? ` (last: ${c.lastMeaningfulTouch?.slice(0, 10)})` : '';
+		console.log(`  ${c.title} — ${c.interactionsCount} interactions${touch}`);
 	}
 }
+
+// ─── Projects ──────────────────────────────────────────────────────────
+
+async function crmProjects(json: boolean) {
+	const data = await crmApi('project', 'list');
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
+	const items = data?.data || [];
+	if (items.length === 0) { console.log('No projects.'); return; }
+	for (const p of items) {
+		const d = p.attributes?.data || {};
+		console.log(`  ${p.attributes?.title} · ${d.state || '?'} · ${p.attributes?.memberCount || 0} members`);
+	}
+}
+
+// ─── Find ──────────────────────────────────────────────────────────────
 
 async function crmFind(query: string, json: boolean) {
-	if (!query) {
-		console.error('Usage: mm crm find <query>');
-		process.exit(1);
-	}
-	const data = await crmApi('contacts', 'search', { query });
-	if (json) {
-		console.log(JSON.stringify(data, null, 2));
-		return;
-	}
+	if (!query) { console.error('Usage: mm crm find <query>  or  mm crm contacts find <query>'); process.exit(1); }
+	const data = await crmApi('find', 'search', { query });
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
 	const hits = data?.data || [];
-	if (hits.length === 0) {
-		console.log('No results found.');
-		return;
-	}
+	if (hits.length === 0) { console.log('No results.'); return; }
 	for (const hit of hits.slice(0, 10)) {
-		const attrs = hit.attributes || {};
-		const name = attrs.name || attrs.title || '(unnamed)';
-		const snippet = (attrs.summary || '').slice(0, 120);
+		const a = hit.attributes || {};
+		const name = a.name || a.title || '(unnamed)';
+		const snippet = (a.summary || '').slice(0, 120);
 		console.log(`  ${hit.id?.slice(0, 8)}  ${name}`);
 		if (snippet) console.log(`        ${snippet}`);
 		console.log('');
 	}
 }
 
-async function crmSingle(action: string, id: string, json: boolean) {
-	if (!id) {
-		console.error(`Usage: mm crm ${action} <id>`);
-		process.exit(1);
-	}
-	const data = await crmApi('contacts', action, { id });
-	if (json) {
-		console.log(JSON.stringify(data, null, 2));
-		return;
-	}
-	console.log(JSON.stringify(data, null, 2));
-}
+// ─── Log ───────────────────────────────────────────────────────────────
 
-async function crmCapture(args: string[], json: boolean) {
+async function crmLog(args: string[], json: boolean) {
 	const text = args.join(' ');
-	if (!text) {
-		console.error('Usage: mm crm capture "<text>"');
-		process.exit(1);
-	}
-	const data = await crmApi('contacts', 'capture', { text });
-	console.log(json ? JSON.stringify(data, null, 2) : 'Captured.');
+	if (!text) { console.error('Usage: mm crm log "<text>"'); process.exit(1); }
+	const data = await crmApi('interaction', 'log', { text });
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+	console.log(`Logged: ${data?.data?.attributes?.title || '(untitled)'}`);
 }
 
-async function crmPassThrough(feature: string, args: string[], json: boolean) {
-	const action = args[0] || 'list';
-	const payload: Record<string, string> = {};
-	for (let i = 1; i < args.length; i++) {
-		const eq = args[i].indexOf('=');
-		if (eq > 0) {
-			payload[args[i].slice(0, eq)] = args[i].slice(eq + 1);
-		}
-	}
+// ─── Context ───────────────────────────────────────────────────────────
 
+async function crmContext(id: string, json: boolean) {
+	if (!id) { console.error('Usage: mm crm context <person-name-or-id>'); process.exit(1); }
+	const data = await crmApi('contact', 'context', { target: id });
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
+	const attrs = data?.data?.attributes || {};
+	const meta = data?.meta || {};
+	console.log(`# ${attrs.title || '(unnamed)'}`);
+	if (attrs.summary) console.log(`\n${attrs.summary.slice(0, 500)}`);
+	if (meta.person) console.log(`\nWith: ${meta.person.title || meta.person.id}`);
+	if (meta.snippet) console.log(`\n> ${String(meta.snippet).replace(/\n/g, '\n> ')}`);
+}
+
+// ─── Peek ──────────────────────────────────────────────────────────────
+
+async function crmPeek(id: string, json: boolean) {
+	if (!id) { console.error('Usage: mm crm peek <id-or-name>'); process.exit(1); }
+	const data = await crmApi('peek', 'show', { target: id });
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
+	const attrs = data?.data?.attributes || {};
+	const meta = data?.meta || {};
+	console.log(`# ${attrs.title || '(untitled)'}`);
+	console.log(`Type: ${data?.data?.type || '?'}  ID: ${data?.data?.id?.slice(0, 8) || '?'}`);
+	if (attrs.summary) console.log(`\n${attrs.summary.slice(0, 500)}`);
+	if (meta.snippet) console.log(`\n> ${String(meta.snippet).replace(/\n/g, '\n> ')}`);
+}
+
+// ─── Read ──────────────────────────────────────────────────────────────
+
+async function crmRead(id: string, json: boolean) {
+	if (!id) { console.error('Usage: mm crm read <id-or-name>'); process.exit(1); }
+	const data = await crmApi('read', 'show', { target: id });
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
+	const attrs = data?.data?.attributes || {};
+	console.log(`# ${attrs.title || '(untitled)'}`);
+	if (attrs.content) console.log(`\n${attrs.content}`);
+	else console.log(JSON.stringify(data, null, 2));
+}
+
+// ─── RPC escape hatch ──────────────────────────────────────────────────
+
+async function crmRpc(args: string[], json: boolean) {
+	const [feature, action, ...rest] = args;
+	if (!feature || !action) {
+		console.error('Usage: mm crm rpc <feature> <action> [k=v ...]');
+		process.exit(1);
+	}
+	const payload: Record<string, string> = {};
+	for (const arg of rest) {
+		const eq = arg.indexOf('=');
+		if (eq > 0) payload[arg.slice(0, eq)] = arg.slice(eq + 1);
+	}
 	const data = await crmApi(feature, action, payload);
-	if (json) {
-		console.log(JSON.stringify(data, null, 2));
-		return;
-	}
-	const items = data?.data || [];
-	if (items.length === 0) {
-		console.log(`No results.`);
-		return;
-	}
-	for (const item of items) {
-		const attrs = item.attributes || {};
-		const name = attrs.name || attrs.title || item.id?.slice(0, 8);
-		console.log(`  ${name}`);
-	}
+	console.log(JSON.stringify(data, null, 2));
 }

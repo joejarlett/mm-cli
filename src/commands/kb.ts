@@ -34,10 +34,34 @@ async function kbApi(feature: string, action: string, payload?: Record<string, a
 	return res.json();
 }
 
+export function printKbHelp() {
+	console.log(`mm kb — Knowledge Base
+
+Subcommands:
+  find <query>            Search documents across collections
+  tree [notebook]         List notebooks (or a single notebook's docs)
+  peek <id>               Preview a document (title + summary)
+  read <id>               Read a document's full body
+  collections | col       List your collections
+  notebooks               Alias for collections
+  status                  KB health + auth check
+
+Anything else falls through to the generic dispatcher against
+kb.meta-me.uk/api/rpc as { feature, action, payload } — e.g.
+\`mm kb documents.searchCorpus '{"query":"…"}'\`. Add --json for
+parseable output.`);
+}
+
 export async function kbDispatch(command: string, args: string[], flags: { json?: boolean }) {
 	const json = flags?.json || false;
 
 	switch (command) {
+		case '':
+		case 'help':
+		case '--help':
+		case '-h':
+			printKbHelp();
+			return;
 		case 'find':
 			return await kbFind(args[0] || '', json);
 		case 'tree':
