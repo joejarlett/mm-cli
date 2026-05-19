@@ -16,10 +16,25 @@ import { loadAuth } from '../auth';
 
 const HUB_URL = process.env.MM_HUB_URL || 'https://meta-me.uk';
 
+export function printSttHelp() {
+	console.log(`mm stt — Speech-to-text via the hub's whisper service
+
+Usage:
+  mm stt <file>           Print transcribed text
+  mm stt - < audio.wav    Read audio bytes from stdin
+  mm stt <file> --json    Full {text, duration_s, infer_ms} JSON
+
+Accepts WAV (fast path) or mp3/m4a/ogg/flac/webm (server-side ffmpeg).`);
+}
+
 export async function sttDispatch(args: string[], flags: { json?: boolean }) {
 	const file = args[0];
+	if (file === 'help' || file === '--help' || file === '-h') {
+		printSttHelp();
+		return;
+	}
 	if (!file) {
-		console.error('Usage: mm stt <file>   (use "-" for stdin)');
+		printSttHelp();
 		process.exit(1);
 	}
 

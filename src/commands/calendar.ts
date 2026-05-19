@@ -40,6 +40,11 @@ export async function calendarDispatch(
 		command = 'list';
 	}
 	switch (command) {
+		case 'help':
+		case '--help':
+		case '-h':
+			printCalendarHelp();
+			return;
 		case '':
 		case 'list':
 		case 'ls':
@@ -49,8 +54,27 @@ export async function calendarDispatch(
 			return calendarNew(args, json);
 		default:
 			console.error(`Unknown command: mm calendar ${command}`);
+			console.error('Try `mm calendar help`.');
 			process.exit(1);
 	}
+}
+
+export function printCalendarHelp() {
+	console.log(`mm calendar — Google Calendar
+
+Subcommands:
+  list | ls               Upcoming events (defaults to next 7 days)
+  new | create            Quick-create a calendar event
+
+Flags:
+  --days <n>              Window for list (default 7)
+  --q "<text>"            Filter by query string
+  --summary "<text>"      Event title (for new)
+  --when "<phrase>"       Natural-language time (e.g. "tomorrow 3pm")
+  --duration <mins>       Event length (default 60)
+  --attendees a@b,c@d     Comma-separated emails
+  --account <slug>        Pick a linked Google account
+  --json                  Parseable output`);
 }
 
 function parseFlags(args: string[]): Record<string, string> {

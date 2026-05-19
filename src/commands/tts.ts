@@ -46,10 +46,30 @@ function parseFlags(args: string[]): { text: string; flags: TtsFlags } {
 	return { text, flags };
 }
 
+export function printTtsHelp() {
+	console.log(`mm tts — Text-to-speech via the hub's Kokoro service
+
+Usage:
+  mm tts "<text>"                       Stream WAV to stdout
+  mm tts "<text>" --out file.wav        Write WAV to file
+  mm tts "<text>" --out file.mp3        ffmpeg-encode to MP3
+  mm tts "<text>" --play                Synthesise + play (afplay)
+  mm tts - --out out.wav < script.txt   Read text from stdin
+  mm tts "<text>" --voice af_bella      Pick a voice (default af_heart)
+
+The hub streams base64 PCM16 chunks at 24kHz via SSE; we concatenate
+into one WAV file. MP3 output pipes through ffmpeg.`);
+}
+
 export async function ttsDispatch(args: string[]) {
+	const first = args[0];
+	if (first === 'help' || first === '--help' || first === '-h') {
+		printTtsHelp();
+		return;
+	}
 	const { text: positional, flags } = parseFlags(args);
 	if (!positional) {
-		console.error('Usage: mm tts "<text>" [--out file] [--play] [--voice id] [--format wav|mp3]');
+		printTtsHelp();
 		process.exit(1);
 	}
 

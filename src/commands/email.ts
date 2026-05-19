@@ -72,6 +72,12 @@ export async function emailDispatch(
 ) {
 	const json = flags?.json || false;
 	switch (command) {
+		case '':
+		case 'help':
+		case '--help':
+		case '-h':
+			printEmailHelp();
+			return;
 		case 'list':
 		case 'ls':
 			return emailList(args, json);
@@ -86,9 +92,30 @@ export async function emailDispatch(
 			return emailSend(args, json, { draftOnly: true });
 		default:
 			console.error(`Unknown command: mm email ${command}`);
-			console.error('Run `mm --help` for available commands.');
+			console.error('Try `mm email help`.');
 			process.exit(1);
 	}
+}
+
+export function printEmailHelp() {
+	console.log(`mm email — User's linked Gmail account(s)
+
+Subcommands:
+  list | ls               List recent messages (filter with --q)
+  get | show <id>         Read a single message
+  send                    Send a new message (composes inline or via --body)
+  draft                   Same as send but saves a draft only
+  resend <id>             Resend a previous message
+
+Send/draft flags:
+  --to <email>            Recipient (required)
+  --cc <email>            CC
+  --bcc <email>           BCC
+  --subject "<text>"      Subject line
+  --body "<text>"         Body (or use --html for HTML body)
+  --from <alias>          Send-as alias on this account
+  --account <slug>        Pick a linked Google account
+  --json                  Parseable output`);
 }
 
 function parseListFlags(args: string[]): {

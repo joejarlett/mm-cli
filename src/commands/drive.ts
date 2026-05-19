@@ -34,6 +34,12 @@ export async function driveDispatch(
 ) {
 	const json = flags?.json || false;
 	switch (command) {
+		case '':
+		case 'help':
+		case '--help':
+		case '-h':
+			printDriveHelp();
+			return;
 		case 'ls':
 		case 'list':
 			return driveList(args, json);
@@ -41,9 +47,24 @@ export async function driveDispatch(
 			return driveDoc(args, json);
 		default:
 			console.error(`Unknown command: mm drive ${command}`);
-			console.error('Run `mm --help` for available commands.');
+			console.error('Try `mm drive help`.');
 			process.exit(1);
 	}
+}
+
+export function printDriveHelp() {
+	console.log(`mm drive — Google Drive
+
+Subcommands:
+  ls | list               List files (filter with --q)
+  doc <file.md>           Create a Google Doc from a markdown file
+
+Flags:
+  --q "<query>"           Search query (Drive search syntax)
+  --limit <n>             Max results (default 20)
+  --folder <id>           Target folder for doc creation
+  --account <slug>        Pick a linked Google account
+  --json                  Parseable output`);
 }
 
 function parseFlags(args: string[]): { flags: Record<string, string>; positional: string[] } {

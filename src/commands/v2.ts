@@ -19,14 +19,23 @@ export async function v2Dispatch(
 ) {
 	const [slug, featureAction, payloadStr] = args;
 
-	if (!slug || !featureAction) {
-		console.error('Usage: mm v2 <app> <feature.action> [json-payload] [--instance <uuid>]');
-		console.error('');
-		console.error('Examples:');
-		console.error('  mm v2 kb collections.list');
-		console.error('  mm v2 kb documents.search \'{"q":"meta"}\'');
-		console.error('  mm v2 finances agent.chat \'{"question":"hi"}\' --instance abc-123');
-		process.exit(1);
+	if (slug === 'help' || slug === '--help' || slug === '-h' || !slug || !featureAction) {
+		console.log(`mm v2 <app> <feature.action> [json-payload] — generic dispatch
+
+Posts {feature, action, payload} to <app>/api/v2 with your bearer
+token. Pre-validates against the app's manifest unless --no-validate.
+
+Examples:
+  mm v2 kb collections.list
+  mm v2 kb documents.search '{"q":"meta"}'
+  mm v2 finances agent.chat '{"question":"hi"}' --instance abc-123
+
+Tips:
+  - Use \`mm manifest <app>\` to see the available feature.actions.
+  - For ergonomic aliases prefer the per-app commands: \`mm kb …\`,
+    \`mm crm …\`. The v2 path is for everything those don't cover.`);
+		if (!slug || !featureAction) process.exit(1);
+		return;
 	}
 
 	let payload: Record<string, unknown> = {};

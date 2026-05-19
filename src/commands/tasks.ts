@@ -36,6 +36,11 @@ export async function tasksDispatch(
 		command = 'list';
 	}
 	switch (command) {
+		case 'help':
+		case '--help':
+		case '-h':
+			printTasksHelp();
+			return;
 		case '':
 		case 'list':
 		case 'ls':
@@ -48,8 +53,25 @@ export async function tasksDispatch(
 			return tasksDone(args, json);
 		default:
 			console.error(`Unknown command: mm tasks ${command}`);
+			console.error('Try `mm tasks help`.');
 			process.exit(1);
 	}
+}
+
+export function printTasksHelp() {
+	console.log(`mm tasks — Google Tasks
+
+Subcommands:
+  list | ls               List tasks (across or in --list)
+  add | new <title>       Add a task (use --due, --notes, --list)
+  done | complete <id>    Mark a task complete
+
+Flags:
+  --list <id>             Pick a specific task list
+  --notes "<text>"        Long description
+  --due YYYY-MM-DD        Due date (natural-language via chrono)
+  --account <slug>        Pick a linked Google account
+  --json                  Parseable output`);
 }
 
 function parseFlags(args: string[]): { flags: Record<string, string>; positional: string[] } {
