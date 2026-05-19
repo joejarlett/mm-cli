@@ -23,6 +23,7 @@ import { sttDispatch } from './commands/stt';
 import { ttsDispatch } from './commands/tts';
 import { v2Dispatch } from './commands/v2';
 import { manifestDispatch } from './commands/manifest';
+import { chatDispatch } from './commands/chat';
 import {
 	sqlDispatch,
 	appsDispatch,
@@ -46,6 +47,7 @@ Usage:
 
   mm kb <command> [args...]    Knowledge Base commands
   mm crm <command> [args...]   CRM commands
+  mm chat <command> [args...]  Local agent threads (list/show/search)
   mm email <command> [args...] Platform email log (admin only)
   mm calendar [list|new] [args] Google Calendar — agenda + quick create
   mm tasks [list|add|done] [args] Google Tasks — list, add, complete
@@ -65,6 +67,14 @@ KB Commands:
   mm kb peek <id>              Preview a document
   mm kb read <id>              Read full document
   mm kb collections            List collections
+
+Chat Commands (local agent threads):
+  mm chat                       List recent threads
+  mm chat list [--limit N] [--project <id>]
+  mm chat show <id> [--limit N]
+                                Print messages in a thread
+  mm chat search <query>        Substring search across messages
+  mm chat projects              List known projects + thread counts
 
 CRM Commands:
   mm crm surface                Today's priorities
@@ -177,6 +187,9 @@ async function main() {
 				break;
 			case 'crm':
 				await crmDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
+			case 'chat':
+				await chatDispatch(positional[1] || '', positional.slice(2), flags);
 				break;
 			case 'email':
 				await emailDispatch(positional[1] || '', positional.slice(2), flags);
