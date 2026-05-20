@@ -29,6 +29,7 @@ type OverviewEntry =
 			summary: string;
 			files_count: number;
 			modified: number;
+			unsummarised?: number;
 			subfolders: Array<{ name: string; files_count: number }>;
 			subfolders_total: number;
 	  }
@@ -203,6 +204,7 @@ async function cmdOverview(args: string[], json: boolean): Promise<void> {
 	for (const e of res.entries) {
 		if (e.kind === 'folder') {
 			const driftPart = e.modified > 0 ? `, ${e.modified} modified` : '';
+			const unsumPart = e.unsummarised && e.unsummarised > 0 ? `, ${e.unsummarised} not yet read` : '';
 			const subBits =
 				e.subfolders && e.subfolders.length > 0
 					? '\n  · subfolders: ' +
@@ -211,7 +213,7 @@ async function cmdOverview(args: string[], json: boolean): Promise<void> {
 							? `, +${e.subfolders_total - e.subfolders.length} more`
 							: '')
 					: '';
-			console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}]${subBits}`);
+			console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}${unsumPart}]${subBits}`);
 		} else {
 			const exp = e.exports ? `  [exports: ${e.exports}]` : '';
 			console.log(`${e.path} — ${e.summary}${exp}`);
