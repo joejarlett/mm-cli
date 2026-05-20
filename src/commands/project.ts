@@ -29,6 +29,8 @@ type OverviewEntry =
 			summary: string;
 			files_count: number;
 			modified: number;
+			subfolders: Array<{ name: string; files_count: number }>;
+			subfolders_total: number;
 	  }
 	| {
 			kind: 'file';
@@ -201,7 +203,15 @@ async function cmdOverview(args: string[], json: boolean): Promise<void> {
 	for (const e of res.entries) {
 		if (e.kind === 'folder') {
 			const driftPart = e.modified > 0 ? `, ${e.modified} modified` : '';
-			console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}]`);
+			const subBits =
+				e.subfolders && e.subfolders.length > 0
+					? '\n  · subfolders: ' +
+						e.subfolders.map((s) => `${s.name} (${s.files_count})`).join(', ') +
+						(e.subfolders_total > e.subfolders.length
+							? `, +${e.subfolders_total - e.subfolders.length} more`
+							: '')
+					: '';
+			console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}]${subBits}`);
 		} else {
 			const exp = e.exports ? `  [exports: ${e.exports}]` : '';
 			console.log(`${e.path} — ${e.summary}${exp}`);
