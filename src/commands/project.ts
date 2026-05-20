@@ -156,6 +156,11 @@ Subcommands:
                                   Flags: --search <q>  --limit <n>  --shallow
   find     <query>                Search across ALL projects (path, exports, summary).
                                   Flags: --project <name|path>  --limit <n>
+  discover [--root <path>] [--apply]
+                                  Scan a root dir for project-shaped subdirs.
+                                  Default --root ~/Documents/dev. Dry-run unless --apply.
+                                  Shallow-indexes README / CLAUDE / AGENTS / NOW /
+                                  package.json for each newly-registered project.
   add      <path> [label]         Register a folder as a project.
   rebuild  <name|path> [subpath]  Drop cached rows and re-summarise.
   help                            Show this help.
@@ -380,6 +385,68 @@ async function cmdAdd(args: string[], json: boolean): Promise<void> {
 	console.log(`Try: mm project overview ${res.project.label}`);
 }
 
+async function cmdDiscover(args: string[], json: boolean): Promise<void> {
+	const positional = [...args];
+	const rootArg = getFlag(positional, '--root');
+	const apply = hasFlag(positional, '--apply');
+	const root = rootArg ? expandPath(rootArg) : `${homedir()}/Documents/dev`;
+
+	type Candidate = {
+		root_path: string;
+		label: string;
+		already_registered: boolean;
+		registered_id: string | null;
+	};
+	type Registered = {
+		id: string;
+		label: string;
+		root_path: string;
+		files_indexed: number;
+	};
+	type Result = { root: string; candidates: Candidate[]; registered: Registered[] };
+
+	const t0 = Date.now();
+	const res = await api<Result>('/api/projects/discover', {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ root, apply }),
+	});
+	const dt = ((Date.now() - t0) / 1000).toFixed(1);
+
+	if (json) {
+		process.stdout.write(JSON.stringify(res, null, 2) + '\n');
+		return;
+	}
+
+	const fresh = res.candidates.filter((c) => !c.already_registered);
+	console.log(`Scanning ${res.root}…`);
+	console.log(
+		`Found ${res.candidates.length} project${res.candidates.length === 1 ? '' : 's'} (${fresh.length} new, ${res.candidates.length - fresh.length} already registered)\n`,
+	);
+
+	if (apply) {
+		if (res.registered.length === 0) {
+			console.log('(nothing new to register)');
+			return;
+		}
+		console.log(`Registered + shallow-indexed in ${dt}s:`);
+		for (const r of res.registered) {
+			console.log(`  ${r.label.padEnd(28)} ${r.files_indexed} file${r.files_indexed === 1 ? '' : 's'} indexed`);
+		}
+		console.log(`\nThese projects now appear in 'mm project list' and the SPA project list.\nUse 'mm project rebuild <name>' for full indexing of any of them.`);
+	} else {
+		if (fresh.length === 0) {
+			console.log('(no new candidates — everything already registered)');
+			return;
+		}
+		console.log('Would register:');
+		for (const c of fresh) {
+			console.log(`  ${c.label.padEnd(28)} ${c.root_path}`);
+		}
+		console.log('\nRun with --apply to register + shallow-index canonical entry-point files.');
+	}
+}
+
 async function cmdRebuild(args: string[], json: boolean): Promise<void> {
 	const needle = args[0];
 	const subPath = args[1];
@@ -459,6 +526,9 @@ export async function projectDispatch(command: string, args: string[], flags: { 
 			break;
 		case 'find':
 			await cmdFind(args, json);
+			break;
+		case 'discover':
+			await cmdDiscover(args, json);
 			break;
 		case 'add':
 			await cmdAdd(args, json);
