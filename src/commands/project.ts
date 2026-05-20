@@ -29,6 +29,7 @@ type OverviewEntry =
 			summary: string;
 			files_count: number;
 			modified: number;
+			last_touched?: number | null;
 			unsummarised?: number;
 			dominant_language?: string | null;
 			subfolders: Array<{ name: string; files_count: number }>;
@@ -77,6 +78,21 @@ function expandPath(p: string): string {
 
 function looksLikePath(s: string): boolean {
 	return s === '~' || s.startsWith('/') || s.startsWith('./') || s.startsWith('../') || s.startsWith('~/');
+}
+
+function relTime(ms: number): string {
+	const diff = Date.now() - ms;
+	const s = Math.floor(diff / 1000);
+	if (s < 60) return 'just now';
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m ago`;
+	const h = Math.floor(m / 60);
+	if (h < 24) return `${h}h ago`;
+	const d = Math.floor(h / 24);
+	if (d < 30) return `${d}d ago`;
+	const mo = Math.floor(d / 30);
+	if (mo < 12) return `${mo}mo ago`;
+	return `${Math.floor(mo / 12)}y ago`;
 }
 
 async function api<T>(pathname: string, init?: RequestInit): Promise<T> {
@@ -138,6 +154,8 @@ Subcommands:
   overview <name|path> [subpath]  Folder-level summaries (default first move).
   detail   <name|path> [subpath]  Per-file summaries under a folder.
                                   Flags: --search <q>  --limit <n>  --shallow
+  find     <query>                Search across ALL projects (path, exports, summary).
+                                  Flags: --project <name|path>  --limit <n>
   add      <path> [label]         Register a folder as a project.
   rebuild  <name|path> [subpath]  Drop cached rows and re-summarise.
   help                            Show this help.
@@ -199,12 +217,17 @@ async function cmdOverview(args: string[], json: boolean): Promise<void> {
 		`${folders.length} folder${folders.length === 1 ? '' : 's'}`,
 		`${files.length} file${files.length === 1 ? '' : 's'}`,
 	];
-	if (drift > 0) headerBits.push(`${drift} modified since last overview`);
+	if (drift > 0) headerBits.push(`${drift} modified in last 7d`);
 	if (res.folders_refreshed > 0) headerBits.push(`${res.folders_refreshed} re-summarised`);
 	console.log(`[${dt}s] ${headerBits.join(' · ')}\n`);
 	for (const e of res.entries) {
 		if (e.kind === 'folder') {
-			const driftPart = e.modified > 0 ? `, ${e.modified} modified` : '';
+			const activityPart =
+				e.modified > 0
+					? `, ${e.modified} modified in last 7d`
+					: e.last_touched
+						? `, touched ${relTime(e.last_touched)}`
+						: '';
 			const unsumPart = e.unsummarised && e.unsummarised > 0 ? `, ${e.unsummarised} not yet read` : '';
 			const subBits =
 				e.subfolders && e.subfolders.length > 0
@@ -215,9 +238,9 @@ async function cmdOverview(args: string[], json: boolean): Promise<void> {
 							: '')
 					: '';
 			if (!e.summary && e.dominant_language) {
-				console.log(`${e.path}/  [${e.files_count} ${e.dominant_language} file${e.files_count === 1 ? '' : 's'}${driftPart}${unsumPart}]${subBits}`);
+				console.log(`${e.path}/  [${e.files_count} ${e.dominant_language} file${e.files_count === 1 ? '' : 's'}${activityPart}${unsumPart}]${subBits}`);
 			} else {
-				console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}${unsumPart}]${subBits}`);
+				console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${activityPart}${unsumPart}]${subBits}`);
 			}
 		} else {
 			const exp = e.exports ? `  [exports: ${e.exports}]` : '';
@@ -268,6 +291,68 @@ async function cmdDetail(args: string[], json: boolean): Promise<void> {
 	for (const e of res.entries) {
 		const exp = e.exports ? `  [exports: ${e.exports}]` : '';
 		console.log(e.summary ? `${e.path} — ${e.summary}${exp}` : `${e.path}${exp}`);
+	}
+}
+
+async function cmdFind(args: string[], json: boolean): Promise<void> {
+	const positional = [...args];
+	const projectScope = getFlag(positional, '--project');
+	const limit = getFlag(positional, '--limit');
+	const cleaned = positional.filter((a, i, arr) => {
+		if (a === '--project' || a === '--limit') return false;
+		if ((arr[i - 1] === '--project' || arr[i - 1] === '--limit') && a === positional[i]) return false;
+		return true;
+	});
+	const query = cleaned.join(' ').trim();
+	if (!query) fail('Usage: mm project find <query> [--project <name|path>] [--limit <n>]');
+
+	const params = new URLSearchParams();
+	params.set('q', query);
+	if (limit) params.set('limit', limit);
+	if (projectScope) {
+		const proj = await resolveProject(projectScope);
+		if (!proj) fail(`No project matches "${projectScope}".`);
+		params.set('project', proj.id);
+	}
+
+	type Hit = {
+		project_id: string;
+		project_label: string;
+		project_root: string;
+		path: string;
+		summary: string;
+		exports: string | null;
+		kind: string;
+		language: string | null;
+		mtime: number;
+		rank: number;
+	};
+	const res = await api<{ q: string; hits: Hit[]; limit: number }>(`/api/projects/find?${params}`);
+
+	if (json) {
+		process.stdout.write(JSON.stringify(res, null, 2) + '\n');
+		return;
+	}
+	if (res.hits.length === 0) {
+		console.log(`(no matches for "${query}")`);
+		return;
+	}
+	console.log(`${res.hits.length} hit${res.hits.length === 1 ? '' : 's'} for "${query}":\n`);
+	// Group by project for readability.
+	const byProject = new Map<string, Hit[]>();
+	for (const h of res.hits) {
+		const list = byProject.get(h.project_label) ?? [];
+		list.push(h);
+		byProject.set(h.project_label, list);
+	}
+	for (const [label, hits] of byProject) {
+		console.log(`${label}:`);
+		for (const h of hits) {
+			const exp = h.exports ? `  [exports: ${h.exports}]` : '';
+			const sumPart = h.summary ? ` — ${h.summary}` : '';
+			console.log(`  ${h.path}${sumPart}${exp}`);
+		}
+		console.log('');
 	}
 }
 
@@ -371,6 +456,9 @@ export async function projectDispatch(command: string, args: string[], flags: { 
 			break;
 		case 'detail':
 			await cmdDetail(args, json);
+			break;
+		case 'find':
+			await cmdFind(args, json);
 			break;
 		case 'add':
 			await cmdAdd(args, json);
