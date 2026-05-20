@@ -332,7 +332,12 @@ async function cmdFind(args: string[], json: boolean): Promise<void> {
 		mtime: number;
 		rank: number;
 	};
-	const res = await api<{ q: string; hits: Hit[]; limit: number }>(`/api/projects/find?${params}`);
+	const res = await api<{
+		q: string;
+		hits: Hit[];
+		limit: number;
+		match_kind?: 'single' | 'phrase' | 'tokens';
+	}>(`/api/projects/find?${params}`);
 
 	if (json) {
 		process.stdout.write(JSON.stringify(res, null, 2) + '\n');
@@ -342,7 +347,13 @@ async function cmdFind(args: string[], json: boolean): Promise<void> {
 		console.log(`(no matches for "${query}")`);
 		return;
 	}
-	console.log(`${res.hits.length} hit${res.hits.length === 1 ? '' : 's'} for "${query}":\n`);
+	const matchHint =
+		res.match_kind === 'phrase'
+			? ' (phrase)'
+			: res.match_kind === 'tokens'
+				? ' (no phrase match, fell back to AND-tokens — results may be loose)'
+				: '';
+	console.log(`${res.hits.length} hit${res.hits.length === 1 ? '' : 's'} for "${query}"${matchHint}:\n`);
 	// Group by project for readability.
 	const byProject = new Map<string, Hit[]>();
 	for (const h of res.hits) {
