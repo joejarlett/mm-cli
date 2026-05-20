@@ -30,6 +30,7 @@ type OverviewEntry =
 			files_count: number;
 			modified: number;
 			unsummarised?: number;
+			dominant_language?: string | null;
 			subfolders: Array<{ name: string; files_count: number }>;
 			subfolders_total: number;
 	  }
@@ -213,7 +214,11 @@ async function cmdOverview(args: string[], json: boolean): Promise<void> {
 							? `, +${e.subfolders_total - e.subfolders.length} more`
 							: '')
 					: '';
-			console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}${unsumPart}]${subBits}`);
+			if (!e.summary && e.dominant_language) {
+				console.log(`${e.path}/  [${e.files_count} ${e.dominant_language} file${e.files_count === 1 ? '' : 's'}${driftPart}${unsumPart}]${subBits}`);
+			} else {
+				console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}${unsumPart}]${subBits}`);
+			}
 		} else {
 			const exp = e.exports ? `  [exports: ${e.exports}]` : '';
 			console.log(e.summary ? `${e.path} — ${e.summary}${exp}` : `${e.path}${exp}`);
@@ -296,23 +301,62 @@ async function cmdRebuild(args: string[], json: boolean): Promise<void> {
 	if (!needle) fail('Usage: mm project rebuild <name|path> [subpath]');
 	const proj = await resolveProject(needle);
 	if (!proj) fail(`No project matches "${needle}".`);
-	const t0 = Date.now();
-	const res = await api<{ refreshed: number; skipped: number }>(
-		`/api/projects/${proj.id}/index/refresh`,
-		{
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify(subPath ? { path: subPath } : {}),
-		},
-	);
-	const dt = ((Date.now() - t0) / 1000).toFixed(1);
-	if (json) {
-		process.stdout.write(JSON.stringify({ project: proj, ...res }, null, 2) + '\n');
-		return;
+
+	// POST kicks off (or rejoins) the async rebuild; the daemon walks the
+	// tree in the background and we poll the status endpoint for progress.
+	// Returns 202 with `{accepted, alreadyRunning, startedAt, indexed}`.
+	const start = await api<{
+		accepted: boolean;
+		alreadyRunning: boolean;
+		startedAt: number;
+		indexed: number;
+	}>(`/api/projects/${proj.id}/index/refresh`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(subPath ? { path: subPath } : {}),
+	});
+
+	if (!json) {
+		const prefix = start.alreadyRunning ? 'rebuild already running' : 'rebuild started';
+		process.stdout.write(`${prefix} for ${proj.label}${subPath ? ` / ${subPath}` : ''} — polling…\n`);
 	}
-	console.log(
-		`[${dt}s] rebuilt ${proj.label}${subPath ? ` / ${subPath}` : ''}: refreshed=${res.refreshed} skipped=${res.skipped}`,
-	);
+
+	type Status = {
+		running: boolean;
+		indexed: number;
+		startedAt: number | null;
+		finishedAt: number | null;
+		refreshed: number | null;
+		error: string | null;
+	};
+
+	const t0 = Date.now();
+	let last = 0;
+	while (true) {
+		const status = await api<Status>(`/api/projects/${proj.id}/index/refresh/status`);
+		if (!json && status.running && status.indexed !== last) {
+			const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
+			process.stdout.write(`  [${elapsed}s] indexed=${status.indexed}\n`);
+			last = status.indexed;
+		}
+		if (!status.running) {
+			const dt = ((Date.now() - t0) / 1000).toFixed(1);
+			if (json) {
+				process.stdout.write(
+					JSON.stringify({ project: proj, ...status, elapsed_seconds: Number(dt) }, null, 2) + '\n',
+				);
+				return;
+			}
+			if (status.error) {
+				fail(`[${dt}s] rebuild failed: ${status.error}`);
+			}
+			console.log(
+				`[${dt}s] rebuilt ${proj.label}${subPath ? ` / ${subPath}` : ''}: refreshed=${status.refreshed ?? 0} indexed=${status.indexed}`,
+			);
+			return;
+		}
+		await new Promise((r) => setTimeout(r, 2000));
+	}
 }
 
 export async function projectDispatch(command: string, args: string[], flags: { json?: boolean }) {
