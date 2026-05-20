@@ -216,7 +216,7 @@ async function cmdOverview(args: string[], json: boolean): Promise<void> {
 			console.log(`${e.path}/ — ${e.summary}  [${e.files_count} file${e.files_count === 1 ? '' : 's'}${driftPart}${unsumPart}]${subBits}`);
 		} else {
 			const exp = e.exports ? `  [exports: ${e.exports}]` : '';
-			console.log(`${e.path} — ${e.summary}${exp}`);
+			console.log(e.summary ? `${e.path} — ${e.summary}${exp}` : `${e.path}${exp}`);
 		}
 	}
 }
@@ -262,7 +262,7 @@ async function cmdDetail(args: string[], json: boolean): Promise<void> {
 	console.log(`[${dt}s] ${headerBits.join(' · ')}\n`);
 	for (const e of res.entries) {
 		const exp = e.exports ? `  [exports: ${e.exports}]` : '';
-		console.log(`${e.path} — ${e.summary}${exp}`);
+		console.log(e.summary ? `${e.path} — ${e.summary}${exp}` : `${e.path}${exp}`);
 	}
 }
 
