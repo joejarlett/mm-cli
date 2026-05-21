@@ -12,6 +12,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const DB_PATH = join(homedir(), '.mm', 'meta-me-local-agent.db');
+const AGENT_BASE = process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142';
 
 function open(): Database {
 	if (!existsSync(DB_PATH)) {
@@ -55,12 +56,18 @@ Subcommands:
   search <query> [--limit N]
                        Substring match across message bodies (case-insensitive)
   projects             List known projects + thread counts
+  send "<message>" [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id>]
+                       Drive a turn on the local agent. Streams assistant
+                       output to stdout. Without --new or --thread, continues
+                       the most recently updated thread.
   help                 Show this help
 
-Reads ${DB_PATH} (read-only). Add --json for parseable output.
+Reads ${DB_PATH} (read-only) for list/show/search/projects.
+\`send\` talks to the agent at ${AGENT_BASE} (override with MM_LOCAL_AGENT_URL).
+Add --json for parseable output.
 
 Tips:
-  • Thread IDs are UUIDs; a 6-char prefix is enough for \`show\`.
+  • Thread IDs are UUIDs; a 6-char prefix is enough for \`show\` or \`send --thread\`.
   • \`mm chat list\` is the fastest way to find a thread to resume in
     chat.meta-me.uk — the title and timestamp identify it; click it
     there to pick up where it left off.`);
@@ -221,6 +228,229 @@ function listProjects(json: boolean) {
 	}
 }
 
+function hasFlag(args: string[], name: string): boolean {
+	return args.includes(name);
+}
+
+async function sendMessage(args: string[], flags: { json?: boolean }) {
+	const message = args[0];
+	if (!message || message.startsWith('--')) {
+		process.stderr.write(
+			'Usage: mm chat send "<message>" [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id>]\n',
+		);
+		process.exit(1);
+	}
+
+	const isNew = hasFlag(args, '--new');
+	const titleFlag = getFlag(args, '--title');
+	const modelFlag = getFlag(args, '--model');
+	const threadFlag = getFlag(args, '--thread');
+	const projectFlag = getFlag(args, '--project');
+	const json = flags?.json || false;
+
+	if (isNew && threadFlag) {
+		process.stderr.write('Error: --new and --thread are mutually exclusive\n');
+		process.exit(1);
+	}
+
+	let provider: string | undefined;
+	let modelId: string | undefined;
+	if (modelFlag) {
+		const slash = modelFlag.indexOf('/');
+		if (slash <= 0) {
+			process.stderr.write(
+				`Error: --model must be provider-prefixed, e.g. google/gemini-3.5-flash\n`,
+			);
+			process.exit(1);
+		}
+		provider = modelFlag.slice(0, slash);
+		modelId = modelFlag.slice(slash + 1);
+	}
+
+	let threadId: string;
+	if (threadFlag) {
+		if (!existsSync(DB_PATH)) {
+			process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
+			process.exit(1);
+		}
+		const db = new Database(DB_PATH, { readonly: true });
+		const resolved = resolveThreadId(db, threadFlag);
+		db.close();
+		if (!resolved) {
+			process.stderr.write(`Error: thread not found: ${threadFlag}\n`);
+			process.exit(1);
+		}
+		threadId = resolved;
+	} else if (isNew) {
+		const body: Record<string, string> = {};
+		if (titleFlag) body.title = titleFlag;
+		if (projectFlag) body.project_id = projectFlag;
+		try {
+			const resp = await fetch(`${AGENT_BASE}/api/threads`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (!resp.ok) {
+				const text = await resp.text();
+				process.stderr.write(`Error: POST /api/threads ${resp.status}: ${text}\n`);
+				process.exit(1);
+			}
+			const data = (await resp.json()) as { id: string };
+			threadId = data.id;
+		} catch (err) {
+			process.stderr.write(`Error: agent unreachable at ${AGENT_BASE} (${err})\n`);
+			process.exit(1);
+		}
+	} else {
+		// Continue most recently updated thread, scoped to project if given.
+		if (!existsSync(DB_PATH)) {
+			process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
+			process.exit(1);
+		}
+		const db = new Database(DB_PATH, { readonly: true });
+		const row = projectFlag
+			? db
+					.query<{ id: string }, [string]>(
+						'SELECT id FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1',
+					)
+					.get(projectFlag)
+			: db
+					.query<{ id: string }, []>('SELECT id FROM thread ORDER BY updated_at DESC LIMIT 1')
+					.get();
+		db.close();
+		if (!row) {
+			process.stderr.write(
+				'Error: no existing thread to continue. Pass --new to create one.\n',
+			);
+			process.exit(1);
+		}
+		threadId = row.id;
+	}
+
+	const wsUrl = AGENT_BASE.replace(/^http/, 'ws') + '/ws';
+	const ws = new WebSocket(wsUrl);
+
+	let exitCode = 0;
+	let streamedAnything = false;
+	let statusActive = false;
+	let gotTerminal = false;
+	const isTty = !!process.stdout.isTTY;
+
+	const clearStatus = () => {
+		if (statusActive && isTty) {
+			process.stdout.write('\r' + ' '.repeat(60) + '\r');
+		}
+		statusActive = false;
+	};
+
+	await new Promise<void>((resolve) => {
+		const finish = () => {
+			try {
+				ws.close();
+			} catch {}
+			resolve();
+		};
+
+		ws.addEventListener('open', () => {
+			const payload: Record<string, unknown> = { type: 'send', threadId, content: message };
+			if (provider && modelId) {
+				payload.provider = provider;
+				payload.modelId = modelId;
+			}
+			if (projectFlag && !isNew) {
+				// On --new the project was already set at create time. For continuing
+				// threads, agent's setThreadProject is no-op on already-bound threads.
+				payload.projectId = projectFlag;
+			}
+			ws.send(JSON.stringify(payload));
+		});
+
+		ws.addEventListener('message', (evt: MessageEvent) => {
+			let event: Record<string, unknown>;
+			try {
+				event = JSON.parse(String(evt.data));
+			} catch {
+				return;
+			}
+
+			if (json) {
+				process.stdout.write(JSON.stringify(event) + '\n');
+				if (event.type === 'done') {
+					gotTerminal = true;
+					finish();
+				} else if (event.type === 'error') {
+					gotTerminal = true;
+					exitCode = 1;
+					finish();
+				}
+				return;
+			}
+
+			switch (event.type) {
+				case 'delta':
+					clearStatus();
+					if (typeof event.text === 'string' && event.text.length > 0) {
+						process.stdout.write(event.text);
+						streamedAnything = true;
+					}
+					break;
+				case 'tool_start':
+					if (isTty) {
+						clearStatus();
+						const name = typeof event.toolName === 'string' ? event.toolName : 'tool';
+						process.stdout.write(`\r· running ${name}`);
+						statusActive = true;
+					}
+					break;
+				case 'tool_end':
+					clearStatus();
+					break;
+				case 'thinking_delta':
+				case 'status':
+					// Suppressed in default mode.
+					break;
+				case 'done': {
+					clearStatus();
+					const ft = typeof event.fullText === 'string' ? event.fullText : '';
+					if (!streamedAnything && ft.length > 0) {
+						process.stdout.write(ft);
+						streamedAnything = true;
+					}
+					if (streamedAnything) process.stdout.write('\n');
+					gotTerminal = true;
+					finish();
+					break;
+				}
+				case 'error':
+					clearStatus();
+					process.stderr.write(`\nError: ${event.message ?? 'unknown'}\n`);
+					exitCode = 1;
+					gotTerminal = true;
+					finish();
+					break;
+			}
+		});
+
+		ws.addEventListener('error', () => {
+			clearStatus();
+			process.stderr.write(`\nError: WebSocket failed to ${wsUrl}\n`);
+			exitCode = 1;
+			finish();
+		});
+
+		ws.addEventListener('close', () => {
+			if (!gotTerminal && exitCode === 0) {
+				process.stderr.write('\nError: connection closed before turn completed\n');
+				exitCode = 1;
+			}
+			resolve();
+		});
+	});
+
+	process.exit(exitCode);
+}
+
 export async function chatDispatch(command: string, args: string[], flags: { json?: boolean }) {
 	const json = flags?.json || false;
 	switch (command) {
@@ -238,6 +468,9 @@ export async function chatDispatch(command: string, args: string[], flags: { jso
 			break;
 		case 'projects':
 			listProjects(json);
+			break;
+		case 'send':
+			await sendMessage(args, flags);
 			break;
 		case 'help':
 		case '--help':
