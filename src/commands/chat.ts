@@ -10,6 +10,7 @@ import { Database } from 'bun:sqlite';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { hubApi } from '../hub';
 
 const DB_PATH = join(homedir(), '.mm', 'meta-me-local-agent.db');
 const AGENT_BASE = process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142';
@@ -60,6 +61,8 @@ Subcommands:
                        Drive a turn on the local agent. Streams assistant
                        output to stdout. Without --new or --thread, continues
                        the most recently updated thread.
+  nodes                List registered agent nodes from the hub (instance.list)
+  models               List models the local agent has provider keys for
   help                 Show this help
 
 Reads ${DB_PATH} (read-only) for list/show/search/projects.
@@ -230,6 +233,83 @@ function listProjects(json: boolean) {
 
 function hasFlag(args: string[], name: string): boolean {
 	return args.includes(name);
+}
+
+type InstanceListItem = {
+	id: string;
+	appSlug: string;
+	name: string;
+	url: string | null;
+	isOwner: boolean;
+};
+
+async function listNodes(json: boolean) {
+	try {
+		// Cover both the current `chat` slug (deployed reality — m4, fedora,
+		// dees-imac all filed under 'chat') and the prospective `agent` slug
+		// from the rename discussion. Whichever the hub has, we surface.
+		const data = await hubApi<{ instances: InstanceListItem[] }>('instance', 'list', {
+			slugs: ['chat', 'agent'],
+		});
+		const rows = data.instances ?? [];
+		if (json) {
+			process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
+			return;
+		}
+		if (rows.length === 0) {
+			console.log('(no nodes registered)');
+			console.log('Register one with: mm v2 instance.create --slug=chat --label=<name> --url=<url>');
+			return;
+		}
+		for (const r of rows) {
+			const owner = r.isOwner ? '' : ' (shared)';
+			const url = r.url ?? '(no url)';
+			console.log(`${r.name.padEnd(20)} ${r.appSlug.padEnd(8)} ${url}${owner}`);
+		}
+	} catch (err) {
+		process.stderr.write(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
+		process.exit(1);
+	}
+}
+
+type AgentModel = {
+	provider: string;
+	id: string;
+	label: string;
+	input: string[];
+};
+
+async function listModels(args: string[], json: boolean) {
+	const nodeFlag = getFlag(args, '--node');
+	if (nodeFlag) {
+		process.stderr.write('Error: --node not yet supported for `mm chat models` (step 3 of agent-cli spec).\n');
+		process.exit(1);
+	}
+	try {
+		const resp = await fetch(`${AGENT_BASE}/api/models`);
+		if (!resp.ok) {
+			process.stderr.write(`Error: GET /api/models ${resp.status}\n`);
+			process.exit(1);
+		}
+		const data = (await resp.json()) as { models: AgentModel[] };
+		const models = data.models ?? [];
+		if (json) {
+			process.stdout.write(JSON.stringify(models, null, 2) + '\n');
+			return;
+		}
+		if (models.length === 0) {
+			console.log('(no models available — set a provider key via the SPA or ~/.pi/agent/auth.json)');
+			return;
+		}
+		for (const m of models) {
+			const fullId = `${m.provider}/${m.id}`;
+			const inputs = m.input.join(',');
+			console.log(`${m.label.padEnd(6)} ${fullId.padEnd(40)} [${inputs}]`);
+		}
+	} catch (err) {
+		process.stderr.write(`Error: agent unreachable at ${AGENT_BASE} (${err})\n`);
+		process.exit(1);
+	}
 }
 
 async function sendMessage(args: string[], flags: { json?: boolean }) {
@@ -471,6 +551,12 @@ export async function chatDispatch(command: string, args: string[], flags: { jso
 			break;
 		case 'send':
 			await sendMessage(args, flags);
+			break;
+		case 'nodes':
+			await listNodes(json);
+			break;
+		case 'models':
+			await listModels(args, json);
 			break;
 		case 'help':
 		case '--help':
