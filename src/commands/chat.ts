@@ -448,7 +448,7 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 	const message = args[0];
 	if (!message || message.startsWith('--')) {
 		process.stderr.write(
-			'Usage: mm chat send "<message>" [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id>]\n',
+			'Usage: mm chat send "<message>" [--node <name>] [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id>]\n',
 		);
 		process.exit(1);
 	}
@@ -458,7 +458,20 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 	const modelFlag = getFlag(args, '--model');
 	const threadFlag = getFlag(args, '--thread');
 	const projectFlag = getFlag(args, '--project');
+	const nodeFlag = getFlag(args, '--node');
 	const json = flags?.json || false;
+
+	// Resolve target base URL (HTTP) + WS URL for the dial.
+	let httpBase: string;
+	let wsBase: string;
+	if (nodeFlag) {
+		const resolved = await resolveNode(nodeFlag);
+		httpBase = resolved.baseUrl;
+		wsBase = resolved.baseUrl.replace(/^https/, 'wss').replace(/^http/, 'ws');
+	} else {
+		httpBase = AGENT_BASE;
+		wsBase = AGENT_BASE.replace(/^http/, 'ws');
+	}
 
 	if (isNew && threadFlag) {
 		process.stderr.write('Error: --new and --thread are mutually exclusive\n');
@@ -481,24 +494,35 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 
 	let threadId: string;
 	if (threadFlag) {
-		if (!existsSync(DB_PATH)) {
-			process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
-			process.exit(1);
+		if (nodeFlag) {
+			// No SQLite prefix resolution on a remote node — require full UUID.
+			if (threadFlag.length < 36) {
+				process.stderr.write(
+					`Error: --thread under --node requires a full UUID (36 chars), got '${threadFlag}'.\n`,
+				);
+				process.exit(1);
+			}
+			threadId = threadFlag;
+		} else {
+			if (!existsSync(DB_PATH)) {
+				process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
+				process.exit(1);
+			}
+			const db = new Database(DB_PATH, { readonly: true });
+			const resolved = resolveThreadId(db, threadFlag);
+			db.close();
+			if (!resolved) {
+				process.stderr.write(`Error: thread not found: ${threadFlag}\n`);
+				process.exit(1);
+			}
+			threadId = resolved;
 		}
-		const db = new Database(DB_PATH, { readonly: true });
-		const resolved = resolveThreadId(db, threadFlag);
-		db.close();
-		if (!resolved) {
-			process.stderr.write(`Error: thread not found: ${threadFlag}\n`);
-			process.exit(1);
-		}
-		threadId = resolved;
 	} else if (isNew) {
 		const body: Record<string, string> = {};
 		if (titleFlag) body.title = titleFlag;
 		if (projectFlag) body.project_id = projectFlag;
 		try {
-			const resp = await fetch(`${AGENT_BASE}/api/threads`, {
+			const resp = await fetch(`${httpBase}/api/threads`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(body),
@@ -511,36 +535,57 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 			const data = (await resp.json()) as { id: string };
 			threadId = data.id;
 		} catch (err) {
-			process.stderr.write(`Error: agent unreachable at ${AGENT_BASE} (${err})\n`);
+			process.stderr.write(`Error: agent unreachable at ${httpBase} (${err})\n`);
 			process.exit(1);
 		}
 	} else {
 		// Continue most recently updated thread, scoped to project if given.
-		if (!existsSync(DB_PATH)) {
-			process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
-			process.exit(1);
+		if (nodeFlag) {
+			const qs = new URLSearchParams({ limit: '1' });
+			if (projectFlag) qs.set('project_id', projectFlag);
+			const resp = await fetch(`${httpBase}/api/threads?${qs}`);
+			if (!resp.ok) {
+				process.stderr.write(`Error: GET /api/threads on '${nodeFlag}' ${resp.status}\n`);
+				process.exit(1);
+			}
+			const data = (await resp.json()) as { threads: { id: string }[] };
+			const row = data.threads?.[0];
+			if (!row) {
+				process.stderr.write(
+					`Error: no thread to continue on node '${nodeFlag}'. Pass --new to create one.\n`,
+				);
+				process.exit(1);
+			}
+			threadId = row.id;
+		} else {
+			if (!existsSync(DB_PATH)) {
+				process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
+				process.exit(1);
+			}
+			const db = new Database(DB_PATH, { readonly: true });
+			const row = projectFlag
+				? db
+						.query<{ id: string }, [string]>(
+							'SELECT id FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1',
+						)
+						.get(projectFlag)
+				: db
+						.query<{ id: string }, []>(
+							'SELECT id FROM thread ORDER BY updated_at DESC LIMIT 1',
+						)
+						.get();
+			db.close();
+			if (!row) {
+				process.stderr.write(
+					'Error: no existing thread to continue. Pass --new to create one.\n',
+				);
+				process.exit(1);
+			}
+			threadId = row.id;
 		}
-		const db = new Database(DB_PATH, { readonly: true });
-		const row = projectFlag
-			? db
-					.query<{ id: string }, [string]>(
-						'SELECT id FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1',
-					)
-					.get(projectFlag)
-			: db
-					.query<{ id: string }, []>('SELECT id FROM thread ORDER BY updated_at DESC LIMIT 1')
-					.get();
-		db.close();
-		if (!row) {
-			process.stderr.write(
-				'Error: no existing thread to continue. Pass --new to create one.\n',
-			);
-			process.exit(1);
-		}
-		threadId = row.id;
 	}
 
-	const wsUrl = AGENT_BASE.replace(/^http/, 'ws') + '/ws';
+	const wsUrl = `${wsBase}/ws`;
 	const ws = new WebSocket(wsUrl);
 
 	let exitCode = 0;
