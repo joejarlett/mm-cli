@@ -123,6 +123,7 @@ function getFlag(args: string[], name: string): string | undefined {
 }
 
 async function listThreads(args: string[], json: boolean) {
+	args = await consumeMentionsFromArgs(args);
 	const limit = parseInt(getFlag(args, '--limit') || '20', 10);
 	const projectId = getFlag(args, '--project');
 	const node = getFlag(args, '--node');
@@ -185,6 +186,7 @@ async function listThreads(args: string[], json: boolean) {
 }
 
 async function showThread(args: string[], json: boolean) {
+	args = await consumeMentionsFromArgs(args);
 	const idArg = args[0];
 	if (!idArg) {
 		process.stderr.write('Usage: mm chat show <id> [--node <name>]\n');
@@ -260,6 +262,7 @@ async function showThread(args: string[], json: boolean) {
 }
 
 async function searchMessages(args: string[], json: boolean) {
+	args = await consumeMentionsFromArgs(args);
 	const query = args[0];
 	if (!query || query.startsWith('--')) {
 		process.stderr.write('Usage: mm chat search <query> [--node <name>] [--limit N]\n');
@@ -312,6 +315,7 @@ async function searchMessages(args: string[], json: boolean) {
 }
 
 async function listProjects(args: string[], json: boolean) {
+	args = await consumeMentionsFromArgs(args);
 	const node = getFlag(args, '--node');
 	let rows: any[];
 	if (node) {
@@ -349,6 +353,247 @@ async function listProjects(args: string[], json: boolean) {
 
 function hasFlag(args: string[], name: string): boolean {
 	return args.includes(name);
+}
+
+// --- @<entity> mentions (phase 1: @node + @project) ---
+// Spec: specs/at-mentions.md in meta-me-local-agent (§ 3.1 updated).
+//
+// Anywhere-in-message resolution: any @<token> that *unambiguously* resolves
+// to a registered node or project sets routing/binding metadata, wherever it
+// appears. Unresolved @<token> values (handles, prose, email addresses) pass
+// through as plain text — false-routing is avoided by the unambiguous-only
+// rule rather than by position-locking.
+//
+// Stripping: mentions in the leading block (whitespace + resolved mentions
+// only before them) are removed from the outbound prompt. Mid-sentence
+// mentions stay inline so the prose still reads naturally and the model can
+// mirror the notation in its reply.
+//
+// Escape: `@@<token>` disables resolution and is unescaped to `@<token>` in
+// the outbound body. For literal-mention cases (writing about the syntax,
+// quoting another conversation).
+//
+// `@node:<name>` / `@project:<name>` force a single-axis lookup for the
+// (rare) bare-name collision.
+
+const MENTION_RE = /(?<![@\w])@([a-zA-Z0-9][\w.:-]*)/g;
+const ESCAPE_RE = /@@([a-zA-Z0-9][\w.:-]*)/g;
+
+async function lookupNodeName(name: string): Promise<boolean> {
+	try {
+		const nodes = await loadNodes();
+		return nodes.some((n) => n.name.toLowerCase() === name.toLowerCase());
+	} catch {
+		return false;
+	}
+}
+
+async function lookupProjectName(name: string, targetNode: string | undefined): Promise<boolean> {
+	if (targetNode) {
+		try {
+			const resp = await nodeFetch(targetNode, '/api/projects');
+			if (!resp.ok) return false;
+			const data = (await resp.json()) as { projects: { label: string }[] };
+			return (data.projects ?? []).some((p) => p.label.toLowerCase() === name.toLowerCase());
+		} catch {
+			return false;
+		}
+	}
+	if (!existsSync(DB_PATH)) return false;
+	const db = new Database(DB_PATH, { readonly: true });
+	try {
+		const row = db
+			.query<{ c: number }, [string]>(
+				'SELECT COUNT(*) AS c FROM project WHERE LOWER(label) = LOWER(?)',
+			)
+			.get(name);
+		return (row?.c ?? 0) > 0;
+	} finally {
+		db.close();
+	}
+}
+
+type ResolvedMention = {
+	start: number; // index in original message of '@'
+	end: number; // one-past-end of the matched mention
+	type: 'node' | 'project';
+	name: string;
+};
+
+/**
+ * Classify a single token (sans leading `@`). Returns the resolved type +
+ * name, or `null` if the token doesn't resolve to anything we know. Throws
+ * on cross-axis ambiguity (same bare name matches both node and project).
+ */
+async function classifyToken(
+	token: string,
+	contextNode: string | undefined,
+): Promise<{ type: 'node' | 'project'; name: string } | null> {
+	if (token.startsWith('node:')) {
+		const name = token.slice('node:'.length);
+		return name.length > 0 ? { type: 'node', name } : null;
+	}
+	if (token.startsWith('project:')) {
+		const name = token.slice('project:'.length);
+		return name.length > 0 ? { type: 'project', name } : null;
+	}
+	const [isNode, isProject] = await Promise.all([
+		lookupNodeName(token),
+		lookupProjectName(token, contextNode),
+	]);
+	if (isNode && isProject) {
+		throw new Error(
+			`'@${token}' is ambiguous (matches: node '${token}', project '${token}'). ` +
+				`Use @node:${token} or @project:${token}.`,
+		);
+	}
+	if (isNode) return { type: 'node', name: token };
+	if (isProject) return { type: 'project', name: token };
+	return null;
+}
+
+/**
+ * Scan the message for `@<token>` mentions. Resolve each via the lookups.
+ * Apply first-wins-per-axis to set node/project. Build the outbound body by
+ * stripping leading-block resolved mentions and unescaping `@@<token>`.
+ */
+async function scanMessageMentions(
+	message: string,
+	existing: { node?: string; project?: string },
+): Promise<{ body: string; node?: string; project?: string; warnings: string[] }> {
+	const warnings: string[] = [];
+
+	// Collect all regex matches first so positions stay stable.
+	const matches: { start: number; end: number; token: string }[] = [];
+	let m: RegExpExecArray | null;
+	MENTION_RE.lastIndex = 0;
+	while ((m = MENTION_RE.exec(message)) !== null) {
+		matches.push({ start: m.index, end: m.index + m[0].length, token: m[1] });
+	}
+
+	// Resolve in order. An earlier @<node> mention narrows the project
+	// lookup target for subsequent untyped tokens (so `@joe-inc` on a
+	// message routed to fedora resolves against fedora's projects).
+	let contextNode = existing.node;
+	const resolved: ResolvedMention[] = [];
+	for (const match of matches) {
+		const cls = await classifyToken(match.token, contextNode);
+		if (!cls) continue;
+		if (cls.type === 'node' && contextNode === undefined) {
+			contextNode = cls.name;
+		}
+		resolved.push({ start: match.start, end: match.end, type: cls.type, name: cls.name });
+	}
+
+	// First-wins-per-axis; explicit flags override.
+	let node = existing.node;
+	let project = existing.project;
+	let nodeClaimed = existing.node !== undefined;
+	let projectClaimed = existing.project !== undefined;
+	for (const r of resolved) {
+		if (r.type === 'node') {
+			if (existing.node !== undefined) {
+				if (existing.node.toLowerCase() !== r.name.toLowerCase()) {
+					warnings.push(`warning: --node '${existing.node}' overrides @${r.name}`);
+				}
+			} else if (!nodeClaimed) {
+				node = r.name;
+				nodeClaimed = true;
+			}
+		} else {
+			if (existing.project !== undefined) {
+				if (existing.project.toLowerCase() !== r.name.toLowerCase()) {
+					warnings.push(`warning: --project '${existing.project}' overrides @${r.name}`);
+				}
+			} else if (!projectClaimed) {
+				project = r.name;
+				projectClaimed = true;
+			}
+		}
+	}
+
+	// Strip resolved mentions in the leading block (whitespace + already-
+	// stripped mentions before them). Mid-sentence mentions stay inline.
+	let cursor = 0;
+	while (cursor < message.length && /\s/.test(message[cursor])) cursor++;
+	let stripped = false;
+	for (const r of resolved) {
+		if (r.start !== cursor) break;
+		cursor = r.end;
+		while (cursor < message.length && /\s/.test(message[cursor])) cursor++;
+		stripped = true;
+	}
+	let body = stripped ? message.slice(cursor) : message;
+	body = body.replace(ESCAPE_RE, '@$1');
+
+	return { body, node, project, warnings };
+}
+
+/**
+ * For read commands: peel leading args of shape `@<token>`. Different from
+ * `send` — argv has no natural "mid-sentence" position, so any @-prefixed
+ * arg before a flag/positional is a mention. Stop at the first non-mention
+ * arg. Resolved mentions are dropped; unresolved ones (or same-axis dupes)
+ * are pushed back as @-prefixed args so the caller can still see them.
+ */
+async function consumeMentionsFromArgs(args: string[]): Promise<string[]> {
+	const tokens: string[] = [];
+	let i = 0;
+	while (i < args.length && args[i].startsWith('@') && args[i].length > 1) {
+		tokens.push(args[i].slice(1));
+		i++;
+	}
+	if (tokens.length === 0) return args;
+
+	const existing = { node: getFlag(args, '--node'), project: getFlag(args, '--project') };
+	let contextNode = existing.node;
+	const dropped = new Set<number>();
+	const warnings: string[] = [];
+	let node = existing.node;
+	let project = existing.project;
+	let nodeClaimed = existing.node !== undefined;
+	let projectClaimed = existing.project !== undefined;
+
+	for (let j = 0; j < tokens.length; j++) {
+		const cls = await classifyToken(tokens[j], contextNode);
+		if (!cls) continue;
+		if (cls.type === 'node' && contextNode === undefined) contextNode = cls.name;
+		if (cls.type === 'node') {
+			if (existing.node !== undefined) {
+				if (existing.node.toLowerCase() !== cls.name.toLowerCase()) {
+					warnings.push(`warning: --node '${existing.node}' overrides @${cls.name}`);
+				}
+				dropped.add(j);
+			} else if (!nodeClaimed) {
+				node = cls.name;
+				nodeClaimed = true;
+				dropped.add(j);
+			}
+		} else {
+			if (existing.project !== undefined) {
+				if (existing.project.toLowerCase() !== cls.name.toLowerCase()) {
+					warnings.push(`warning: --project '${existing.project}' overrides @${cls.name}`);
+				}
+				dropped.add(j);
+			} else if (!projectClaimed) {
+				project = cls.name;
+				projectClaimed = true;
+				dropped.add(j);
+			}
+		}
+	}
+
+	for (const w of warnings) process.stderr.write(w + '\n');
+
+	const keptTokens: string[] = [];
+	for (let j = 0; j < tokens.length; j++) {
+		if (!dropped.has(j)) keptTokens.push(`@${tokens[j]}`);
+	}
+	const tailArgs = args.slice(i);
+	const newArgs = [...keptTokens, ...tailArgs];
+	if (node && !existing.node) newArgs.push('--node', node);
+	if (project && !existing.project) newArgs.push('--project', project);
+	return newArgs;
 }
 
 type InstanceListItem = {
@@ -479,8 +724,8 @@ async function listModels(args: string[], json: boolean) {
 }
 
 async function sendMessage(args: string[], flags: { json?: boolean }) {
-	const message = args[0];
-	if (!message || message.startsWith('--')) {
+	const rawMessage = args[0];
+	if (!rawMessage || rawMessage.startsWith('--')) {
 		process.stderr.write(
 			'Usage: mm chat send "<message>" [--node <name>] [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id>]\n',
 		);
@@ -491,9 +736,25 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 	const titleFlag = getFlag(args, '--title');
 	const modelFlag = getFlag(args, '--model');
 	const threadFlag = getFlag(args, '--thread');
-	const projectFlag = getFlag(args, '--project');
-	const nodeFlag = getFlag(args, '--node');
 	const json = flags?.json || false;
+
+	// Parse @<entity> mentions out of the message. Resolves any @<token>
+	// that unambiguously matches a registered node/project (anywhere in the
+	// message); leading-block mentions are stripped, mid-sentence ones stay
+	// inline. `@@<token>` escapes to a literal `@<token>`. Explicit flags
+	// win on conflict; the parser warns.
+	const parsed = await scanMessageMentions(rawMessage, {
+		node: getFlag(args, '--node'),
+		project: getFlag(args, '--project'),
+	});
+	for (const w of parsed.warnings) process.stderr.write(w + '\n');
+	const message = parsed.body.trim();
+	if (!message) {
+		process.stderr.write('Error: message is empty after stripping mentions.\n');
+		process.exit(1);
+	}
+	const nodeFlag = parsed.node;
+	const projectFlag = parsed.project;
 
 	// Resolve target base URL (HTTP) + WS URL for the dial.
 	let httpBase: string;
