@@ -94,6 +94,29 @@ function resolveThreadId(db: Database, prefix: string): string | null {
 	return null;
 }
 
+const UUID_RE_CLI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolve --project for the local SQLite path. Mirrors the agent's
+ * resolveProjectInput so `mm chat list --project joe-inc` works
+ * identically with and without --node.
+ */
+function resolveLocalProject(db: Database, input: string): string | null {
+	if (UUID_RE_CLI.test(input)) {
+		const row = db.query<{ id: string }, [string]>('SELECT id FROM project WHERE id = ?').get(input);
+		if (row) return row.id;
+	}
+	const matches = db
+		.query<{ id: string }, [string]>('SELECT id FROM project WHERE LOWER(label) = LOWER(?)')
+		.all(input);
+	if (matches.length === 1) return matches[0].id;
+	if (matches.length > 1) {
+		process.stderr.write(`Error: project label '${input}' is ambiguous (${matches.length} matches)\n`);
+		process.exit(1);
+	}
+	return null;
+}
+
 function getFlag(args: string[], name: string): string | undefined {
 	const i = args.indexOf(name);
 	return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
@@ -116,14 +139,25 @@ async function listThreads(args: string[], json: boolean) {
 		rows = ((await resp.json()) as { threads: any[] }).threads ?? [];
 	} else {
 		const db = open();
-		rows = projectId
+		let resolvedProjectId: string | null = null;
+		if (projectId) {
+			resolvedProjectId = resolveLocalProject(db, projectId);
+			if (!resolvedProjectId) {
+				db.close();
+				process.stderr.write(
+					`Error: project '${projectId}' not found locally. Try \`mm chat projects\` for the list.\n`,
+				);
+				process.exit(1);
+			}
+		}
+		rows = resolvedProjectId
 			? db
 					.query<any, [string, number]>(
 						`SELECT id, title, project_id, model_id, updated_at,
 						        (SELECT COUNT(*) FROM message WHERE thread_id = thread.id) AS msg_count
 						   FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?`,
 					)
-					.all(projectId, limit)
+					.all(resolvedProjectId, limit)
 			: db
 					.query<any, [number]>(
 						`SELECT id, title, project_id, model_id, updated_at,
@@ -563,12 +597,23 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 				process.exit(1);
 			}
 			const db = new Database(DB_PATH, { readonly: true });
-			const row = projectFlag
+			let resolvedProjectId: string | null = null;
+			if (projectFlag) {
+				resolvedProjectId = resolveLocalProject(db, projectFlag);
+				if (!resolvedProjectId) {
+					db.close();
+					process.stderr.write(
+						`Error: project '${projectFlag}' not found locally. Try \`mm chat projects\`.\n`,
+					);
+					process.exit(1);
+				}
+			}
+			const row = resolvedProjectId
 				? db
 						.query<{ id: string }, [string]>(
 							'SELECT id FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1',
 						)
-						.get(projectFlag)
+						.get(resolvedProjectId)
 				: db
 						.query<{ id: string }, []>(
 							'SELECT id FROM thread ORDER BY updated_at DESC LIMIT 1',
