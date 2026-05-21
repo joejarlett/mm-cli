@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { hubApi } from '../hub';
+import { getTailscaleSuffix } from '../tailscale';
 
 const DB_PATH = join(homedir(), '.mm', 'meta-me-local-agent.db');
 const AGENT_BASE = process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142';
@@ -50,19 +51,22 @@ export function printChatHelp() {
 	console.log(`mm chat — local agent threads
 
 Subcommands:
-  list [--limit N] [--project <id>]
+  list [--node <name>] [--limit N] [--project <id>]
                        Recent threads, newest first (default limit 20)
-  show <id> [--limit N]
-                       Print messages in a thread (default limit 50)
-  search <query> [--limit N]
+  show <id> [--node <name>] [--limit N]
+                       Print messages in a thread (default limit 50). With
+                       --node, requires a full UUID (no prefix resolution).
+  search <query> [--node <name>] [--limit N]
                        Substring match across message bodies (case-insensitive)
-  projects             List known projects + thread counts
+  projects [--node <name>]
+                       List known projects + thread counts
   send "<message>" [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id>]
                        Drive a turn on the local agent. Streams assistant
                        output to stdout. Without --new or --thread, continues
                        the most recently updated thread.
   nodes                List registered agent nodes from the hub (instance.list)
-  models               List models the local agent has provider keys for
+  models [--node <name>]
+                       List models the agent has provider keys for
   help                 Show this help
 
 Reads ${DB_PATH} (read-only) for list/show/search/projects.
@@ -95,28 +99,41 @@ function getFlag(args: string[], name: string): string | undefined {
 	return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
 }
 
-function listThreads(args: string[], json: boolean) {
-	const db = open();
+async function listThreads(args: string[], json: boolean) {
 	const limit = parseInt(getFlag(args, '--limit') || '20', 10);
 	const projectId = getFlag(args, '--project');
-	const rows = projectId
-		? db
-				.query<any, [string, number]>(
-					`SELECT id, title, project_id, model_id, updated_at,
-					        (SELECT COUNT(*) FROM message WHERE thread_id = thread.id) AS msg_count
-					   FROM thread
-					  WHERE project_id = ?
-					  ORDER BY updated_at DESC LIMIT ?`,
-				)
-				.all(projectId, limit)
-		: db
-				.query<any, [number]>(
-					`SELECT id, title, project_id, model_id, updated_at,
-					        (SELECT COUNT(*) FROM message WHERE thread_id = thread.id) AS msg_count
-					   FROM thread
-					  ORDER BY updated_at DESC LIMIT ?`,
-				)
-				.all(limit);
+	const node = getFlag(args, '--node');
+
+	let rows: any[];
+	if (node) {
+		const qs = new URLSearchParams({ limit: String(limit) });
+		if (projectId) qs.set('project_id', projectId);
+		const resp = await nodeFetch(node, `/api/threads?${qs}`);
+		if (!resp.ok) {
+			process.stderr.write(`Error: GET /api/threads ${resp.status}\n`);
+			process.exit(1);
+		}
+		rows = ((await resp.json()) as { threads: any[] }).threads ?? [];
+	} else {
+		const db = open();
+		rows = projectId
+			? db
+					.query<any, [string, number]>(
+						`SELECT id, title, project_id, model_id, updated_at,
+						        (SELECT COUNT(*) FROM message WHERE thread_id = thread.id) AS msg_count
+						   FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?`,
+					)
+					.all(projectId, limit)
+			: db
+					.query<any, [number]>(
+						`SELECT id, title, project_id, model_id, updated_at,
+						        (SELECT COUNT(*) FROM message WHERE thread_id = thread.id) AS msg_count
+						   FROM thread ORDER BY updated_at DESC LIMIT ?`,
+					)
+					.all(limit);
+		db.close();
+	}
+
 	if (json) {
 		process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
 		return;
@@ -129,31 +146,64 @@ function listThreads(args: string[], json: boolean) {
 		const id6 = r.id.slice(0, 6);
 		const proj = r.project_id ? ` [${r.project_id.slice(0, 6)}]` : '';
 		const model = r.model_id ? ` ${r.model_id.split('/').pop()}` : '';
-		console.log(`${id6}  ${relTime(r.updated_at).padEnd(8)} ${r.msg_count.toString().padStart(3)}msg  ${truncate(r.title, 60)}${proj}${model}`);
+		console.log(`${id6}  ${relTime(r.updated_at).padEnd(8)} ${(r.msg_count ?? 0).toString().padStart(3)}msg  ${truncate(r.title, 60)}${proj}${model}`);
 	}
 }
 
-function showThread(args: string[], json: boolean) {
+async function showThread(args: string[], json: boolean) {
 	const idArg = args[0];
 	if (!idArg) {
-		process.stderr.write('Usage: mm chat show <id>\n');
+		process.stderr.write('Usage: mm chat show <id> [--node <name>]\n');
 		process.exit(1);
 	}
-	const db = open();
-	const id = resolveThreadId(db, idArg);
-	if (!id) {
-		process.stderr.write(`Error: thread not found: ${idArg}\n`);
-		process.exit(1);
-	}
-	const thread = db
-		.query<any, [string]>('SELECT * FROM thread WHERE id = ?')
-		.get(id);
+	const node = getFlag(args, '--node');
 	const limit = parseInt(getFlag(args, '--limit') || '50', 10);
-	const messages = db
-		.query<any, [string, number]>(
-			'SELECT id, role, content, created_at FROM message WHERE thread_id = ? ORDER BY created_at ASC LIMIT ?',
-		)
-		.all(id, limit);
+
+	let thread: any;
+	let messages: any[];
+
+	if (node) {
+		// Without local SQLite there's no prefix resolution — require full id.
+		if (idArg.length < 36) {
+			process.stderr.write(
+				`Error: --node requires a full thread id (36 chars), got '${idArg}'. Use \`mm chat list --node ${node}\` to find one.\n`,
+			);
+			process.exit(1);
+		}
+		const threadsResp = await nodeFetch(node, `/api/threads?limit=1000`);
+		if (!threadsResp.ok) {
+			process.stderr.write(`Error: GET /api/threads ${threadsResp.status}\n`);
+			process.exit(1);
+		}
+		const threadsData = (await threadsResp.json()) as { threads: any[] };
+		thread = (threadsData.threads ?? []).find((t) => t.id === idArg);
+		if (!thread) {
+			process.stderr.write(`Error: thread not found on node '${node}': ${idArg}\n`);
+			process.exit(1);
+		}
+		const msgsResp = await nodeFetch(node, `/api/threads/${idArg}/messages`);
+		if (!msgsResp.ok) {
+			process.stderr.write(`Error: GET /api/threads/:id/messages ${msgsResp.status}\n`);
+			process.exit(1);
+		}
+		const msgsData = (await msgsResp.json()) as { messages: any[] };
+		messages = (msgsData.messages ?? []).slice(0, limit);
+	} else {
+		const db = open();
+		const id = resolveThreadId(db, idArg);
+		if (!id) {
+			db.close();
+			process.stderr.write(`Error: thread not found: ${idArg}\n`);
+			process.exit(1);
+		}
+		thread = db.query<any, [string]>('SELECT * FROM thread WHERE id = ?').get(id);
+		messages = db
+			.query<any, [string, number]>(
+				'SELECT id, role, content, created_at FROM message WHERE thread_id = ? ORDER BY created_at ASC LIMIT ?',
+			)
+			.all(id, limit);
+		db.close();
+	}
 
 	if (json) {
 		process.stdout.write(JSON.stringify({ thread, messages }, null, 2) + '\n');
@@ -175,23 +225,43 @@ function showThread(args: string[], json: boolean) {
 	}
 }
 
-function searchMessages(args: string[], json: boolean) {
+async function searchMessages(args: string[], json: boolean) {
 	const query = args[0];
-	if (!query) {
-		process.stderr.write('Usage: mm chat search <query>\n');
+	if (!query || query.startsWith('--')) {
+		process.stderr.write('Usage: mm chat search <query> [--node <name>] [--limit N]\n');
 		process.exit(1);
 	}
-	const db = open();
 	const limit = parseInt(getFlag(args, '--limit') || '20', 10);
-	const rows = db
-		.query<any, [string, number]>(
-			`SELECT m.id, m.thread_id, m.role, m.content, m.created_at, t.title
-			   FROM message m
-			   JOIN thread t ON t.id = m.thread_id
-			  WHERE LOWER(m.content) LIKE LOWER(?)
-			  ORDER BY m.created_at DESC LIMIT ?`,
-		)
-		.all(`%${query}%`, limit);
+	const node = getFlag(args, '--node');
+
+	let rows: any[];
+	if (node) {
+		const qs = new URLSearchParams({ q: query, limit: String(limit) });
+		const resp = await nodeFetch(node, `/api/messages/search?${qs}`);
+		if (resp.status === 404) {
+			process.stderr.write(
+				`Error: node '${node}' doesn't have /api/messages/search yet — it needs to be redeployed with the current meta-me-local-agent build.\n`,
+			);
+			process.exit(1);
+		}
+		if (!resp.ok) {
+			process.stderr.write(`Error: GET /api/messages/search ${resp.status}\n`);
+			process.exit(1);
+		}
+		rows = ((await resp.json()) as { matches: any[] }).matches ?? [];
+	} else {
+		const db = open();
+		rows = db
+			.query<any, [string, number]>(
+				`SELECT m.id, m.thread_id, m.role, m.content, m.created_at, t.title
+				   FROM message m JOIN thread t ON t.id = m.thread_id
+				  WHERE LOWER(m.content) LIKE LOWER(?)
+				  ORDER BY m.created_at DESC LIMIT ?`,
+			)
+			.all(`%${query}%`, limit);
+		db.close();
+	}
+
 	if (json) {
 		process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
 		return;
@@ -207,16 +277,27 @@ function searchMessages(args: string[], json: boolean) {
 	}
 }
 
-function listProjects(json: boolean) {
-	const db = open();
-	const rows = db
-		.query<any, []>(
-			`SELECT p.id, p.label, p.root_path, p.last_opened_at,
-			        (SELECT COUNT(*) FROM thread WHERE project_id = p.id) AS thread_count
-			   FROM project p
-			  ORDER BY p.last_opened_at DESC`,
-		)
-		.all();
+async function listProjects(args: string[], json: boolean) {
+	const node = getFlag(args, '--node');
+	let rows: any[];
+	if (node) {
+		const resp = await nodeFetch(node, `/api/projects`);
+		if (!resp.ok) {
+			process.stderr.write(`Error: GET /api/projects ${resp.status}\n`);
+			process.exit(1);
+		}
+		rows = ((await resp.json()) as { projects: any[] }).projects ?? [];
+	} else {
+		const db = open();
+		rows = db
+			.query<any, []>(
+				`SELECT p.id, p.label, p.root_path, p.last_opened_at,
+				        (SELECT COUNT(*) FROM thread WHERE project_id = p.id) AS thread_count
+				   FROM project p ORDER BY p.last_opened_at DESC`,
+			)
+			.all();
+		db.close();
+	}
 	if (json) {
 		process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
 		return;
@@ -227,7 +308,8 @@ function listProjects(json: boolean) {
 	}
 	for (const r of rows) {
 		const id6 = r.id.slice(0, 6);
-		console.log(`${id6}  ${r.thread_count.toString().padStart(3)}thr  ${r.label.padEnd(24)}  ${r.root_path}`);
+		const count = (r.thread_count ?? 0).toString().padStart(3);
+		console.log(`${id6}  ${count}thr  ${r.label.padEnd(24)}  ${r.root_path}`);
 	}
 }
 
@@ -242,6 +324,58 @@ type InstanceListItem = {
 	url: string | null;
 	isOwner: boolean;
 };
+
+let nodesCache: InstanceListItem[] | null = null;
+
+async function loadNodes(): Promise<InstanceListItem[]> {
+	if (nodesCache) return nodesCache;
+	const data = await hubApi<{ instances: InstanceListItem[] }>('instance', 'list', {
+		slugs: ['chat', 'agent'],
+	});
+	nodesCache = data.instances ?? [];
+	return nodesCache;
+}
+
+/**
+ * Resolve `--node <name>` to a base URL fronted by the local tailscaled's
+ * MagicDNS suffix, so cert + connection stay in sync across suffix rotations.
+ * The stored `app_instance.url` provides the bare hostname + port; the suffix
+ * comes from `tailscale status --json`.
+ */
+async function resolveNode(name: string): Promise<{ baseUrl: string; displayName: string }> {
+	const nodes = await loadNodes();
+	const lower = name.toLowerCase();
+	const matches = nodes.filter((n) => n.name.toLowerCase() === lower);
+	if (matches.length === 0) {
+		const known = nodes.map((n) => n.name).join(', ') || '(none registered)';
+		throw new Error(`No node named '${name}'. Known: ${known}. Try: mm chat nodes`);
+	}
+	if (matches.length > 1) {
+		throw new Error(`Multiple nodes named '${name}'. Disambiguate via the hub.`);
+	}
+	const row = matches[0];
+	if (!row.url) {
+		throw new Error(`Node '${row.name}' has no URL registered.`);
+	}
+	const parsed = new URL(row.url);
+	const bare = parsed.hostname.split('.')[0];
+	const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+	const suffix = getTailscaleSuffix();
+	return {
+		baseUrl: `https://${bare}.${suffix}:${port}`,
+		displayName: row.name,
+	};
+}
+
+async function nodeFetch(node: string, path: string): Promise<Response> {
+	const { baseUrl, displayName } = await resolveNode(node);
+	const url = `${baseUrl}${path}`;
+	try {
+		return await fetch(url);
+	} catch (err) {
+		throw new Error(`fetch ${url} failed (node '${displayName}'): ${err}`);
+	}
+}
 
 async function listNodes(json: boolean) {
 	try {
@@ -281,12 +415,10 @@ type AgentModel = {
 
 async function listModels(args: string[], json: boolean) {
 	const nodeFlag = getFlag(args, '--node');
-	if (nodeFlag) {
-		process.stderr.write('Error: --node not yet supported for `mm chat models` (step 3 of agent-cli spec).\n');
-		process.exit(1);
-	}
 	try {
-		const resp = await fetch(`${AGENT_BASE}/api/models`);
+		const resp = nodeFlag
+			? await nodeFetch(nodeFlag, '/api/models')
+			: await fetch(`${AGENT_BASE}/api/models`);
 		if (!resp.ok) {
 			process.stderr.write(`Error: GET /api/models ${resp.status}\n`);
 			process.exit(1);
@@ -536,18 +668,18 @@ export async function chatDispatch(command: string, args: string[], flags: { jso
 	switch (command) {
 		case '':
 		case 'list':
-			listThreads(args, json);
+			await listThreads(args, json);
 			break;
 		case 'show':
 		case 'read':
-			showThread(args, json);
+			await showThread(args, json);
 			break;
 		case 'search':
 		case 'find':
-			searchMessages(args, json);
+			await searchMessages(args, json);
 			break;
 		case 'projects':
-			listProjects(json);
+			await listProjects(args, json);
 			break;
 		case 'send':
 			await sendMessage(args, flags);
