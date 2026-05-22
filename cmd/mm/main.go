@@ -51,6 +51,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(cmd.NewLoginCmd())
 	root.AddCommand(cmd.NewLogoutCmd())
 	root.AddCommand(cmd.NewWhoamiCmd())
+	root.AddCommand(cmd.NewStatusCmd())
 
 	// Phase 2 subcommands.
 	root.AddCommand(cmd.NewCalendarCmd())
