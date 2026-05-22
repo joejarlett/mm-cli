@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/spf13/cobra"
@@ -51,16 +52,25 @@ func runChatSend(cmd *cobra.Command, args []string) error {
 	nodeFlag, _ := cmd.Flags().GetString("node")
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 
-	client := mmhttp.New()
-
-	// Mentions parser (lightweight): strip @<entity> resolution is deferred
-	// to a follow-up; today the Go port forwards the message as-is. Explicit
-	// flags --node / --project are honoured. (Full parity with TS mentions
-	// lands once we wire the resolver against loadNodes + agent /api/projects.)
-	message := strings.TrimSpace(rawMessage)
-	if message == "" {
-		return fmt.Errorf("message is empty")
+	// Parse @<entity> mentions out of the message.
+	body, resolvedNode, resolvedProject, warnings, err := ScanMessageMentions(cmd.Context(), rawMessage, nodeFlag, projectFlag)
+	if err != nil {
+		return err
 	}
+	for _, w := range warnings {
+		fmt.Fprintln(os.Stderr, w)
+	}
+
+	message := strings.TrimSpace(body)
+	if message == "" {
+		return fmt.Errorf("message is empty after parsing mentions")
+	}
+
+	// Update node and project flags from resolved mentions
+	nodeFlag = resolvedNode
+	projectFlag = resolvedProject
+
+	client := mmhttp.New()
 
 	target, err := client.AgentBase(cmd.Context(), nodeFlag)
 	if err != nil {
@@ -86,16 +96,7 @@ func runChatSend(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Open WS and send.
-	wsURL := target.WS + "/ws"
-	conn, _, err := websocket.Dial(cmd.Context(), wsURL, &websocket.DialOptions{
-		HTTPHeader: nil,
-	})
-	if err != nil {
-		return fmt.Errorf("WebSocket dial %s: %w", wsURL, err)
-	}
-	defer conn.CloseNow()
-
+	// Prepare initial send payload
 	payload := map[string]any{"type": "send", "threadId": threadID, "content": message}
 	if provider != "" && modelID != "" {
 		payload["provider"] = provider
@@ -104,16 +105,15 @@ func runChatSend(cmd *cobra.Command, args []string) error {
 	if projectFlag != "" && !isNew {
 		payload["projectId"] = projectFlag
 	}
-	bodyJSON, _ := json.Marshal(payload)
-	if err := conn.Write(cmd.Context(), websocket.MessageText, bodyJSON); err != nil {
-		return fmt.Errorf("WS write: %w", err)
-	}
+	initialPayload, _ := json.Marshal(payload)
 
-	return streamWS(cmd.Context(), conn, wantJSON)
+	wsURL := target.WS + "/ws"
+
+	return streamWSWithReconnect(cmd.Context(), client, wsURL, threadID, wantJSON, initialPayload)
 }
 
-// streamWS reads events from the WS until done|error.
-func streamWS(ctx context.Context, conn *websocket.Conn, wantJSON bool) error {
+// streamWSWithReconnect dials, reads events, tracks the cursor, and handles unexpected drops.
+func streamWSWithReconnect(ctx context.Context, client *mmhttp.Client, wsURL string, threadID string, wantJSON bool, initialPayload []byte) error {
 	isTTY := term.IsTerminal(int(os.Stdout.Fd()))
 	streamedAnything := false
 	statusActive := false
@@ -125,9 +125,91 @@ func streamWS(ctx context.Context, conn *websocket.Conn, wantJSON bool) error {
 		statusActive = false
 	}
 
+	var lastCursor *int64
+	var conn *websocket.Conn
+	var err error
+
+	maxAttempts := 5
+	attempt := 0
+
+	// Initial Dial
+	for {
+		conn, _, err = websocket.Dial(ctx, wsURL, nil)
+		if err != nil {
+			attempt++
+			if attempt >= maxAttempts {
+				return fmt.Errorf("WebSocket dial %s: %w", wsURL, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+				continue
+			}
+		}
+		break
+	}
+	defer func() {
+		if conn != nil {
+			conn.CloseNow()
+		}
+	}()
+
+	if err := conn.Write(ctx, websocket.MessageText, initialPayload); err != nil {
+		return fmt.Errorf("WS write: %w", err)
+	}
+
 	for {
 		_, data, err := conn.Read(ctx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// Resilient Reconnect
+			if lastCursor != nil {
+				clearStatus()
+				fmt.Fprintln(os.Stderr, "\n⚠️ Connection lost. Reconnecting...")
+				conn.CloseNow()
+				conn = nil
+
+				reconnectSuccess := false
+				for attempt = 1; attempt <= maxAttempts; attempt++ {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(1 * time.Second):
+					}
+
+					conn, _, err = websocket.Dial(ctx, wsURL, nil)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "  Retrying connection (attempt %d/%d)...\n", attempt, maxAttempts)
+						continue
+					}
+
+					resumePayload := map[string]any{
+						"type":     "resume",
+						"threadId": threadID,
+						"cursor":   *lastCursor,
+					}
+					resumeJSON, _ := json.Marshal(resumePayload)
+					if err := conn.Write(ctx, websocket.MessageText, resumeJSON); err != nil {
+						conn.CloseNow()
+						conn = nil
+						continue
+					}
+
+					reconnectSuccess = true
+					fmt.Fprintln(os.Stderr, "✓ Reconnected. Resuming stream...")
+					break
+				}
+
+				if !reconnectSuccess {
+					return fmt.Errorf("connection lost and failed to reconnect after %d attempts", maxAttempts)
+				}
+				continue
+			}
+
 			if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "EOF") {
 				if !streamedAnything {
 					return fmt.Errorf("connection closed before turn completed")
@@ -136,11 +218,29 @@ func streamWS(ctx context.Context, conn *websocket.Conn, wantJSON bool) error {
 			}
 			return err
 		}
+
 		var evt map[string]any
 		if err := json.Unmarshal(data, &evt); err != nil {
 			continue
 		}
+
 		etype, _ := evt["type"].(string)
+
+		if etype == "resume_empty" {
+			clearStatus()
+			return fmt.Errorf("stream session expired on the agent; unable to resume from cursor")
+		}
+
+		if cVal, exists := evt["cursor"]; exists {
+			if num, ok := cVal.(float64); ok {
+				cInt := int64(num)
+				if lastCursor != nil && cInt <= *lastCursor {
+					continue
+				}
+				lastCursor = &cInt
+			}
+		}
+
 		if wantJSON {
 			fmt.Println(string(data))
 			if etype == "done" {
@@ -154,6 +254,7 @@ func streamWS(ctx context.Context, conn *websocket.Conn, wantJSON bool) error {
 			}
 			continue
 		}
+
 		switch etype {
 		case "delta":
 			clearStatus()

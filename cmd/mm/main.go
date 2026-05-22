@@ -23,7 +23,14 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	err := root.ExecuteContext(ctx)
+	preprocessed, err := cmd.PreprocessArgs(ctx, os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "❌ %s\n", err.Error())
+		os.Exit(1)
+	}
+	root.SetArgs(preprocessed)
+
+	err = root.ExecuteContext(ctx)
 	db.Close()
 	if err != nil {
 		// Cobra prints its own usage on Args errors; for our RunE errors we
@@ -68,7 +75,6 @@ func newRootCmd() *cobra.Command {
 	// Phase 4 subcommands.
 	root.AddCommand(cmd.NewCardsCmd())
 	root.AddCommand(cmd.NewManifestCmd())
-	root.AddCommand(cmd.NewV2Cmd())
 	root.AddCommand(cmd.NewKbCmd())
 	root.AddCommand(cmd.NewCrmCmd())
 	for _, c := range cmd.NewAppCommands() {
@@ -79,6 +85,7 @@ func newRootCmd() *cobra.Command {
 	// Phase 5 subcommands.
 	root.AddCommand(cmd.NewUpdateCmd())
 	root.AddCommand(cmd.NewVersionCmd())
+	root.AddCommand(cmd.NewFeedbackCmd())
 
 	return root
 }

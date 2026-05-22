@@ -41,7 +41,7 @@ func chatFlags(c *cobra.Command, withSendOnly bool) {
 }
 
 func newChatListCmd() *cobra.Command {
-	c := &cobra.Command{Use: "list", Short: "Recent threads", RunE: runChatList}
+	c := &cobra.Command{Use: "list", Short: "Recent threads", Args: cobra.NoArgs, RunE: runChatList}
 	chatFlags(c, false)
 	return c
 }
@@ -60,17 +60,17 @@ func newChatSearchCmd() *cobra.Command {
 }
 
 func newChatProjectsCmd() *cobra.Command {
-	c := &cobra.Command{Use: "projects", Short: "List projects + thread counts", RunE: runChatProjects}
+	c := &cobra.Command{Use: "projects", Short: "List projects + thread counts", Args: cobra.NoArgs, RunE: runChatProjects}
 	c.Flags().String("node", "", "Target a remote agent")
 	return c
 }
 
 func newChatNodesCmd() *cobra.Command {
-	return &cobra.Command{Use: "nodes", Short: "List registered agent nodes (from instance.list)", RunE: runChatNodes}
+	return &cobra.Command{Use: "nodes", Short: "List registered agent nodes (from instance.list)", Args: cobra.NoArgs, RunE: runChatNodes}
 }
 
 func newChatModelsCmd() *cobra.Command {
-	c := &cobra.Command{Use: "models", Short: "List models the agent has provider keys for", RunE: runChatModels}
+	c := &cobra.Command{Use: "models", Short: "List models the agent has provider keys for", Args: cobra.NoArgs, RunE: runChatModels}
 	c.Flags().String("node", "", "Target a remote agent")
 	return c
 }

@@ -31,7 +31,7 @@ func NewProjectCmd() *cobra.Command {
 }
 
 func newProjectListCmd() *cobra.Command {
-	return &cobra.Command{Use: "list", Short: "List registered projects", RunE: runProjectList}
+	return &cobra.Command{Use: "list", Short: "List registered projects", Args: cobra.NoArgs, RunE: runProjectList}
 }
 
 func newProjectOverviewCmd() *cobra.Command {

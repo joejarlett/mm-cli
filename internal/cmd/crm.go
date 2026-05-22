@@ -26,7 +26,7 @@ func NewCrmCmd() *cobra.Command {
 }
 
 func newCrmSurfaceCmd() *cobra.Command {
-	return &cobra.Command{Use: "surface", Short: "Today's priorities",
+	return &cobra.Command{Use: "surface", Short: "Today's priorities", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return crmDispatch(cmd.Context(), "surface", "list", nil)
 		}}
@@ -43,7 +43,7 @@ func newCrmContactsCmd() *cobra.Command {
 	return c
 }
 func newCrmProjectsCmd() *cobra.Command {
-	return &cobra.Command{Use: "projects", Short: "List CRM projects",
+	return &cobra.Command{Use: "projects", Short: "List CRM projects", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return crmDispatch(cmd.Context(), "project", "list", nil)
 		}}

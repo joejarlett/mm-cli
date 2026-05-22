@@ -22,7 +22,7 @@ func NewDriveCmd() *cobra.Command {
 }
 
 func newDriveListCmd() *cobra.Command {
-	c := &cobra.Command{Use: "ls", Aliases: []string{"list"}, Short: "List files (filter with --q)", RunE: runDriveList}
+	c := &cobra.Command{Use: "ls", Aliases: []string{"list"}, Short: "List files (filter with --q)", Args: cobra.NoArgs, RunE: runDriveList}
 	c.Flags().String("q", "", "Drive search query")
 	c.Flags().Int("max", 20, "Max results")
 	c.Flags().String("account", "", "Pick a linked Google account")

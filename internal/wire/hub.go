@@ -278,6 +278,19 @@ type HubInstanceListResp struct {
 	Instances []HubInstance `json:"instances"`
 }
 
+// ─── Feedback ──────────────────────────────────────────────────────────
+
+type HubFeedbackSubmitReq struct {
+	Message   string `json:"message"`
+	AppSlug   string `json:"appSlug,omitempty"`
+	URL       string `json:"url,omitempty"`
+	UserAgent string `json:"userAgent,omitempty"`
+}
+
+type HubFeedbackSubmitResp struct {
+	ID string `json:"id"`
+}
+
 // ─── Envelope ──────────────────────────────────────────────────────────
 
 // HubEnvelope is the top-level response shape for /api/mm and /api/v2.

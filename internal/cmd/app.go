@@ -54,7 +54,7 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 	refresh, _ := cmd.Flags().GetBool("refresh")
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 
-	if len(args) == 0 {
+	if len(args) == 0 || args[0] == "help" {
 		// Render card.
 		c, err := card.Load(ctx, slug, refresh)
 		if err != nil {

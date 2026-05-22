@@ -40,6 +40,9 @@ func NewTtsCmd() *cobra.Command {
 }
 
 func runTts(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 && args[0] == "help" {
+		return cmd.Help()
+	}
 	text := strings.Join(args, " ")
 	out, _ := cmd.Flags().GetString("out")
 	play, _ := cmd.Flags().GetBool("play")

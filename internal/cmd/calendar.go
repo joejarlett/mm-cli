@@ -22,6 +22,7 @@ func NewCalendarCmd() *cobra.Command {
 		Use:   "calendar",
 		Short: "Google Calendar — agenda + quick create",
 		Long:  "Default: next 7 days agenda. See `mm calendar new --help` to create events.",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCalendarList(cmd, args)
 		},
@@ -39,6 +40,7 @@ func newCalendarListCmd() *cobra.Command {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "Upcoming events (next 7 days by default)",
+		Args:    cobra.NoArgs,
 		RunE:    runCalendarList,
 	}
 	cmd.Flags().Int("days", 7, "Window (default 7)")

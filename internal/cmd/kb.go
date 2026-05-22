@@ -58,13 +58,13 @@ func newKbReadCmd() *cobra.Command {
 		}}
 }
 func newKbCollectionsCmd() *cobra.Command {
-	return &cobra.Command{Use: "collections", Aliases: []string{"col", "notebooks"}, Short: "List collections",
+	return &cobra.Command{Use: "collections", Aliases: []string{"col", "notebooks"}, Short: "List collections", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return kbDispatch(cmd.Context(), "collections", "list", nil)
 		}}
 }
 func newKbStatusCmd() *cobra.Command {
-	return &cobra.Command{Use: "status", Short: "KB health + auth check",
+	return &cobra.Command{Use: "status", Short: "KB health + auth check", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return kbDispatch(cmd.Context(), "status", "get", nil)
 		}}

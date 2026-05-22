@@ -18,6 +18,7 @@ func NewTasksCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tasks",
 		Short: "Google Tasks — list, add, complete",
+		Args:  cobra.NoArgs,
 		RunE:  runTasksList,
 	}
 	cmd.Flags().Int("days", 7, "Window in days")
@@ -28,7 +29,7 @@ func NewTasksCmd() *cobra.Command {
 }
 
 func newTasksListCmd() *cobra.Command {
-	c := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List tasks", RunE: runTasksList}
+	c := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List tasks", Args: cobra.NoArgs, RunE: runTasksList}
 	c.Flags().Int("days", 7, "Window in days")
 	c.Flags().Bool("all", false, "Include all lists")
 	c.Flags().String("account", "", "Pick a linked Google account")

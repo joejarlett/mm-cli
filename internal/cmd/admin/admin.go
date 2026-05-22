@@ -29,7 +29,7 @@ func newSqlCmd() *cobra.Command {
 }
 
 func newAppsCmd() *cobra.Command {
-	return &cobra.Command{Use: "apps", Short: "List all apps registered with the hub", RunE: runApps}
+	return &cobra.Command{Use: "apps", Short: "List all apps registered with the hub", Args: cobra.NoArgs, RunE: runApps}
 }
 
 func newAppCmd() *cobra.Command {
@@ -37,11 +37,11 @@ func newAppCmd() *cobra.Command {
 }
 
 func newHealthCmd() *cobra.Command {
-	return &cobra.Command{Use: "health", Short: "Quick hub stats", RunE: runHealth}
+	return &cobra.Command{Use: "health", Short: "Quick hub stats", Args: cobra.NoArgs, RunE: runHealth}
 }
 
 func newErrorsCmd() *cobra.Command {
-	c := &cobra.Command{Use: "errors", Short: "List recent errors", RunE: runErrors}
+	c := &cobra.Command{Use: "errors", Short: "List recent errors", Args: cobra.NoArgs, RunE: runErrors}
 	c.Flags().String("since", "", "Window (e.g. 24h, 7d). Default: 7d")
 	c.Flags().Int("limit", 50, "Max rows")
 	c.Flags().String("status", "", "Filter: new|triaged|resolved|wontfix|ignored")
@@ -215,7 +215,8 @@ func runHealth(cmd *cobra.Command, _ []string) error {
 		fmt.Println(string(j))
 		return nil
 	}
-	fmt.Println("# Hub health\n")
+	fmt.Println("# Hub health")
+	fmt.Println()
 	rows := []map[string]any{}
 	for _, r := range out {
 		rows = append(rows, map[string]any{"metric": r.Metric, "value": r.Value})

@@ -24,7 +24,7 @@ func NewEmailCmd() *cobra.Command {
 }
 
 func newEmailListCmd() *cobra.Command {
-	c := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List recent platform-sent messages", RunE: runEmailList}
+	c := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List recent platform-sent messages", Args: cobra.NoArgs, RunE: runEmailList}
 	c.Flags().String("status", "", "Filter by status")
 	c.Flags().String("template", "", "Filter by template name")
 	c.Flags().String("q", "", "Free-text filter")
@@ -37,13 +37,13 @@ func newEmailGetCmd() *cobra.Command {
 }
 
 func newEmailSendCmd() *cobra.Command {
-	c := &cobra.Command{Use: "send", Short: "Send a new message", RunE: func(cmd *cobra.Command, args []string) error { return runEmailSend(cmd, args, false) }}
+	c := &cobra.Command{Use: "send", Short: "Send a new message", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return runEmailSend(cmd, args, false) }}
 	addSendFlags(c)
 	return c
 }
 
 func newEmailDraftCmd() *cobra.Command {
-	c := &cobra.Command{Use: "draft", Short: "Save a draft without sending", RunE: func(cmd *cobra.Command, args []string) error { return runEmailSend(cmd, args, true) }}
+	c := &cobra.Command{Use: "draft", Short: "Save a draft without sending", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error { return runEmailSend(cmd, args, true) }}
 	addSendFlags(c)
 	return c
 }

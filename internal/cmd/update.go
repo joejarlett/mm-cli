@@ -14,6 +14,7 @@ func NewUpdateCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "update",
 		Short: "Fetch + replace the running binary (or --check for a one-liner status)",
+		Args:  cobra.NoArgs,
 		RunE:  runUpdate,
 	}
 	c.Flags().Bool("check", false, "Only check if a newer version is available")
@@ -26,6 +27,7 @@ func NewVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the version",
+		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			fmt.Println(version.String())
 		},

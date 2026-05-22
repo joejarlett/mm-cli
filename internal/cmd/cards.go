@@ -36,6 +36,9 @@ func NewManifestCmd() *cobra.Command {
 }
 
 func runCards(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 && args[0] == "help" {
+		return cmd.Help()
+	}
 	refresh, _ := cmd.Flags().GetBool("refresh")
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 	ctx := cmd.Context()
