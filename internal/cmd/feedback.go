@@ -107,7 +107,7 @@ func runFeedbackSubmit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("marshal JSON: %w", err)
 		}
-		cmd.Println(string(out))
+		fmt.Fprintln(cmd.OutOrStdout(), string(out))
 		return nil
 	}
 

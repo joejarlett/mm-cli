@@ -44,7 +44,7 @@ func NewStatusCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("marshal JSON: %w", err)
 				}
-				cmd.Println(string(out))
+				fmt.Fprintln(cmd.OutOrStdout(), string(out))
 				return nil
 			}
 

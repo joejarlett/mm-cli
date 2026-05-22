@@ -29,7 +29,7 @@ func NewWhoamiCmd() *cobra.Command {
 						"error":         "Not authenticated. Run `mm login` first.",
 					}
 					out, _ := json.MarshalIndent(outMap, "", "  ")
-					cmd.Println(string(out))
+					fmt.Fprintln(cmd.OutOrStdout(), string(out))
 					os.Exit(1)
 				}
 				fmt.Println("Not authenticated. Run `mm login` first.")
@@ -50,7 +50,7 @@ func NewWhoamiCmd() *cobra.Command {
 				if err != nil {
 					return fmt.Errorf("marshal JSON: %w", err)
 				}
-				cmd.Println(string(out))
+				fmt.Fprintln(cmd.OutOrStdout(), string(out))
 				return nil
 			}
 

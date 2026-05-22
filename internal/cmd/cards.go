@@ -46,22 +46,22 @@ func runCards(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		// Capability matrix.
 		type row struct {
-			slug         string
-			name         string
-			capabilities []string
-			tools        int
-			err          error
+			Slug         string   `json:"slug"`
+			Name         string   `json:"name,omitempty"`
+			Capabilities []string `json:"capabilities,omitempty"`
+			Tools        int      `json:"tools"`
+			Err          string   `json:"err,omitempty"`
 		}
 		rows := make([]row, 0, len(apps.Registry))
 		for slug := range apps.Registry {
 			c, err := card.Load(ctx, slug, refresh)
-			r := row{slug: slug}
+			r := row{Slug: slug}
 			if err != nil {
-				r.err = err
+				r.Err = err.Error()
 			} else {
-				r.name = c.Name
-				r.capabilities = c.Capabilities
-				r.tools = len(c.Tools)
+				r.Name = c.Name
+				r.Capabilities = c.Capabilities
+				r.Tools = len(c.Tools)
 			}
 			rows = append(rows, r)
 		}
@@ -73,16 +73,16 @@ func runCards(cmd *cobra.Command, args []string) error {
 		fmt.Println("# Apps")
 		fmt.Println()
 		for _, r := range rows {
-			if r.err != nil {
-				fmt.Printf("  %s  (card fetch failed: %s)\n", padRight(r.slug, 12), r.err)
+			if r.Err != "" {
+				fmt.Printf("  %s  (card fetch failed: %s)\n", padRight(r.Slug, 12), r.Err)
 				continue
 			}
-			caps := strings.Join(r.capabilities, ",")
+			caps := strings.Join(r.Capabilities, ",")
 			if caps == "" {
 				caps = "—"
 			}
 			fmt.Printf("  %s  %s  caps=%-30s tools=%d\n",
-				padRight(r.slug, 12), padRight(r.name, 22), caps, r.tools)
+				padRight(r.Slug, 12), padRight(r.Name, 22), caps, r.Tools)
 		}
 		return nil
 	}
