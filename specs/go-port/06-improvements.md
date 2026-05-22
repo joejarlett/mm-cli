@@ -14,7 +14,7 @@
 
 **Patch applied (2026-05-22):**
 - [knowledgebase-v1/src/hooks.server.ts](../../../knowledgebase-v1/src/hooks.server.ts) — committed `360c737`
-- [crm-v2/src/hooks.server.ts](../../../crm-v2/src/hooks.server.ts) — local edit, **uncommitted** because file has unrelated in-flight work (`activeWorkspaceId → activeInstanceId` rename + `handleBearerAuth` introduction). Joe to commit alongside that work.
+- [crm-v2/src/hooks.server.ts](../../../crm-v2/src/hooks.server.ts) — local edit, **uncommitted** because file has unrelated in-flight work (`activeWorkspaceId → activeInstanceId` rename + `handleBearerAuth` introduction). Developer to commit alongside that work.
 
 `handleMcpAuth` function bodies are kept in place so reinstating behind HMAC verification later is a 5-line diff: verify signature → THEN trust headers.
 
@@ -44,7 +44,7 @@ Anyone can fetch a full action list with `auth` modes from any app's manifest en
 
 ### 4. Provider API keys at `~/.pi/agent/auth.json` plaintext (mode 0o600)
 
-Standard CLI risk — any process running as the user can exfiltrate the keys. Fix would be OS keychain integration (macOS Keychain, Linux Secret Service). Not worth doing while Joe is the only user.
+Standard CLI risk — any process running as the user can exfiltrate the keys. Fix would be OS keychain integration (macOS Keychain, Linux Secret Service). Not worth doing while this remains a single-user CLI.
 
 ---
 

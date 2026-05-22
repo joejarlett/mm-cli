@@ -305,7 +305,7 @@ These exist in scope but I haven't fully read them — they're small and don't c
 
 ## 14. Things the Go port must not break
 
-Working backward from "what would Joe notice":
+Working backward from "what a user would notice":
 
 - `mm login` keeps existing `~/.config/mm/auth.json` (same shape). Existing tokens stay valid.
 - `mm chat send --node "MacBook Air" "..."` keeps working end-to-end (tailnet resolution + WS streaming).

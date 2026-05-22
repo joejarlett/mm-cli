@@ -104,18 +104,22 @@ func runCalendarList(cmd *cobra.Command, _ []string) error {
 			head = fmtDay(k)
 		}
 		fmt.Println()
-		fmt.Println(head)
+		fmt.Printf("### %s\n", head)
 		for _, e := range groups[k] {
 			t := fmtTime(e.Start, e.AllDay)
 			loc := ""
 			if e.Location != nil && *e.Location != "" {
-				loc = "  📍 " + *e.Location
+				loc = " 📍 " + *e.Location
 			}
 			att := ""
 			if e.Attendees > 0 {
-				att = fmt.Sprintf("  👥 %d", e.Attendees)
+				att = fmt.Sprintf(" 👥 %d", e.Attendees)
 			}
-			fmt.Printf("  %s %s%s%s\n", padRight(t, 10), e.Summary, loc, att)
+			link := ""
+			if e.HTMLLink != nil && *e.HTMLLink != "" {
+				link = fmt.Sprintf(" — [Event](%s)", *e.HTMLLink)
+			}
+			fmt.Printf("- **%s** — %s%s%s%s\n", t, e.Summary, loc, att, link)
 		}
 	}
 	return nil

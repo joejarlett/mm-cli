@@ -108,23 +108,22 @@ func doRpcAndRender(ctx context.Context, slug, feature, action string, payload m
 				if title == "" {
 					title = "(untitled)"
 				}
-				fmt.Printf("  %s  %s\n", idShort, title)
+				fmt.Printf("- **`%s`** — %s\n", idShort, title)
 				if summary != "" {
 					if len(summary) > 120 {
 						summary = summary[:120]
 					}
-					fmt.Printf("        %s\n", summary)
+					fmt.Printf("  > %s\n", summary)
 				}
-				fmt.Println()
 			}
 			return nil
 		}
 	}
-	// Fallback: pretty-print raw.
+	// Fallback: pretty-print raw JSON in a Markdown code block.
 	var any2 interface{}
 	if err := json.Unmarshal(raw, &any2); err == nil {
 		out, _ := json.MarshalIndent(any2, "", "  ")
-		fmt.Println(string(out))
+		fmt.Printf("```json\n%s\n```\n", string(out))
 		return nil
 	}
 	fmt.Println(string(raw))

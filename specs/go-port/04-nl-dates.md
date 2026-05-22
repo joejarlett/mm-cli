@@ -21,7 +21,7 @@ Used by: `mm calendar new --when`, `mm calendar new --end`, `mm tasks add --due`
 
 ---
 
-## 2. Real-world phrases Joe actually types
+## 2. Real-world phrases the user actually types
 
 Reconstructed from CLAUDE.md examples + memory + intent of the feature. Anything not in this list is acceptable to fail.
 
@@ -64,9 +64,9 @@ Handled specially — see [src/commands/calendar.ts](../../src/commands/calendar
 | `github.com/olebedev/when` | Relative ("tomorrow", "in 2 hours"), some weekday names | Active, ~3k stars. Doesn't cover "next monday 10am" cleanly. |
 | `github.com/araddon/dateparse` | Many ISO/RFC variants | Format autodetect; not NL. |
 | `github.com/markusmobius/go-dateparser` | Port of Python's dateparser | Closest to chrono in scope. 1k stars. Pulled in dependencies are heavy. |
-| Hand-rolled | Joe's actual phrase list | ~150 LOC, zero deps. |
+| Hand-rolled | Sane actual phrase list | ~150 LOC, zero deps. |
 
-**Recommendation: hand-roll.** The phrase list above is short and bounded. Chrono is over-spec'd for what Joe types. A purpose-built parser is faster, dependency-free, fully testable, and never surprises with "oh chrono interpreted that differently in v3."
+**Recommendation: hand-roll.** The phrase list above is short and bounded. Chrono is over-spec'd for these patterns. A purpose-built parser is faster, dependency-free, fully testable, and never surprises with "oh chrono interpreted that differently in v3."
 
 ---
 
@@ -163,4 +163,4 @@ These chrono features are out:
 - "Next-next" ("next next week" — not supported)
 - Locale-specific phrases ("manhã" / "morgen" / "demain" — English-only)
 
-If Joe finds himself typing these regularly, we extend the parser. Until then, the surface stays small.
+If the user finds themselves typing these regularly, we extend the parser. Until then, the surface stays small.

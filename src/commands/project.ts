@@ -174,9 +174,9 @@ Resolution:
 
 Examples:
   mm project list
-  mm project overview joe-inc
-  mm project overview ~/Documents/dev/joe-inc
-  mm project detail joe-inc profile --search PhD --limit 5
+  mm project overview acme-inc
+  mm project overview ~/Documents/dev/acme-inc
+  mm project detail acme-inc profile --search PhD --limit 5
   mm project add ~/Documents/dev/new-thing
   mm project rebuild knowledgebase-v1 src
 

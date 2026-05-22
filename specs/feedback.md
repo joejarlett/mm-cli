@@ -19,7 +19,7 @@ $ mm feedback --help
 # … no feedback command in the help surface
 ```
 
-The `mm feedback` referenced in Joe's global notes is the **admin triage** surface on the hub CLI (`npm run mm` in `meta-me.uk/`, reading the feedback table) — a *read/manage* path, not a *submit* path. So when an agent or user hits friction (an unintuitive default, a broken verb, a confusing error), there is no first-class way to drop it into the queue. It either gets worked around silently or written up as a full repo spec — too heavy for small papercuts.
+The `mm feedback` referenced in the developer's global notes is the **admin triage** surface on the hub CLI (`npm run mm` in `meta-me.uk/`, reading the feedback table) — a *read/manage* path, not a *submit* path. So when an agent or user hits friction (an unintuitive default, a broken verb, a confusing error), there is no first-class way to drop it into the queue. It either gets worked around silently or written up as a full repo spec — too heavy for small papercuts.
 
 This spec adds the lightweight submit half: `[ ] mm feedback`.
 

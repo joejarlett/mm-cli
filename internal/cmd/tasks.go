@@ -106,17 +106,17 @@ func runTasksList(cmd *cobra.Command, _ []string) error {
 		if len(g.Tasks) == 0 {
 			continue
 		}
-		fmt.Printf("\n%s  (%d)\n", g.ListTitle, len(g.Tasks))
+		fmt.Printf("\n### %s (%d)\n", g.ListTitle, len(g.Tasks))
 		for _, t := range g.Tasks {
 			due := ""
 			if t.Due != "" {
-				due = "  due " + fmtDue(t.Due)
+				due = " — *due " + fmtDue(t.Due) + "*"
 			}
-			fmt.Printf("  · %s%s\n", t.Title, due)
-			fmt.Printf("      id=%s  list=%s\n", t.ID, g.ListID)
+			fmt.Printf("- **%s**%s\n", t.Title, due)
+			fmt.Printf("  - ID: `%s` | List: `%s`\n", t.ID, g.ListID)
 			if t.Notes != "" {
-				lines := strings.ReplaceAll(t.Notes, "\n", "\n      ")
-				fmt.Printf("      %s\n", lines)
+				lines := strings.ReplaceAll(t.Notes, "\n", "\n    ")
+				fmt.Printf("    > %s\n", lines)
 			}
 		}
 	}

@@ -106,11 +106,11 @@ func runEmailList(cmd *cobra.Command, _ []string) error {
 		if r.Template != nil {
 			template = *r.Template
 		}
-		fmt.Printf("  %s  %s  %s  %s  %s  %s\n",
+		fmt.Printf("- **`%s`** | `%s` | `%s` | To: `%s` | %s | %s\n",
 			r.ID[:min(len(r.ID), 8)],
-			padRight(r.Status, 6),
-			padRight(truncString(template, 22), 22),
-			padRight(truncString(r.ToAddress, 28), 28),
+			r.Status,
+			template,
+			r.ToAddress,
 			fmtRelative(r.CreatedAt),
 			r.Subject)
 	}

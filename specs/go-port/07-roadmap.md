@@ -81,7 +81,7 @@ Acceptance:
 - `mm chat send "ping" --new` streams a reply identical to TS.
 - `mm chat send "ping" --new --node MacBook\ Air` works over tailnet (when the Air is up).
 - Disconnect mid-stream → reconnect resumes from cursor → no duplicated `delta` events.
-- Mentions: `@fedora @joe-inc do X` routes correctly.
+- Mentions: `@fedora @acme-inc do X` routes correctly.
 
 Estimate: 2–3 days. Mostly the WS streamer + manual reconnect testing.
 
@@ -110,7 +110,7 @@ Estimate: 2 days. SQL + table rendering is the most code; the rest is glue.
 
 ## Phase 5 — Self-update + release pipeline
 
-**Goal:** make distribution painless. Land before any non-Joe user.
+**Goal:** make distribution painless. Land before any non-admin user.
 
 Scope:
 - `internal/cmd/update.go`, `internal/update/update.go` — protocol per `05-distribution.md`.
@@ -129,7 +129,7 @@ Estimate: 1 day.
 
 ## Phase 6 — Cutover
 
-**Goal:** retire the TS binary on Joe's machines.
+**Goal:** retire the TS binary on the developer's machines.
 
 Scope:
 1. Install Go `mm` at `~/.mm/bin/mm` (sane primary path).
@@ -168,7 +168,7 @@ Estimate: passive observation period.
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| NL date parser fails to cover a phrase Joe types | Medium | Test matrix in `04-nl-dates.md`; extend on observed misses. |
+| NL date parser fails to cover a phrase the user types | Medium | Test matrix in `04-nl-dates.md`; extend on observed misses. |
 | WS resume-by-cursor breaks (cursor drift, missed events) | Medium | Phase 3 manual disconnect testing; agent's resume logic is already proven against TS. |
 | `tsgo` no-tsconfig limitation hiding TS errors mid-refactor | Low | Build via `bun build` (the actual transpile path) catches anything bun rejects. |
 | Cobra autoformat diverges from current help text | Low | Override via `Cmd.SetHelpTemplate()` if needed. |

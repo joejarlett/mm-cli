@@ -89,14 +89,14 @@ func runDriveList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	for _, f := range resp.Files {
-		when := padLeft(fmtWhen(f.ModifiedTime), 4)
-		kind := padRight(mimeLabel(f.MimeType), 6)
-		fmt.Printf("  %s  %s  %s\n", when, kind[:6], f.Name)
+		when := fmtWhen(f.ModifiedTime)
+		kind := mimeLabel(f.MimeType)
 		link := f.WebViewLink
-		if link == "" {
-			link = "(no link)"
+		if link != "" {
+			fmt.Printf("- **%s** | `%s` | [%s](%s)\n", when, kind, f.Name, link)
+		} else {
+			fmt.Printf("- **%s** | `%s` | %s\n", when, kind, f.Name)
 		}
-		fmt.Printf("        %s\n", link)
 	}
 	return nil
 }

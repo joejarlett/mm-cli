@@ -15,7 +15,7 @@ This is the only auth path. `auth: hub|session|either` actions on app `/api/v2` 
 ## 2. Login — device flow
 
 ```
-                    auth.meta-me.uk           browser (Joe)
+                    auth.meta-me.uk           browser (User)
 mm-cli  ──POST /api/cli/device──>
         <─ device_code, user_code, verification_uri_complete, expires_in, interval ─
 

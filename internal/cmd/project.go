@@ -99,7 +99,7 @@ func runProjectList(cmd *cobra.Command, _ []string) error {
 		if p.ThreadCount != nil {
 			count = *p.ThreadCount
 		}
-		fmt.Printf("%s  %3dthr  %s  %s\n", id6, count, padRight(p.Label, 24), p.RootPath)
+		fmt.Printf("- **%s** (`%s`) | %d threads | `%s`\n", p.Label, id6, count, p.RootPath)
 	}
 	return nil
 }

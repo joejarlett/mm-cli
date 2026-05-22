@@ -170,7 +170,7 @@ echo "next: commit + push the static dir in meta-me.uk, then docker compose buil
 
 Tag the repo (`git tag vX.Y.Z && git push --tags`), run the script, deploy meta-me.uk. Done.
 
-No GitHub Releases for now (the repo is private; Joe is the only consumer of the artifacts). Switch to GitHub Releases when distribution opens up beyond personal use.
+No GitHub Releases for now (the repo is private; the developer is the only consumer of the artifacts). Switch to GitHub Releases when distribution opens up beyond personal use.
 
 ---
 

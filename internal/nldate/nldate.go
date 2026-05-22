@@ -1,7 +1,7 @@
 // Package nldate is mm-cli's natural-language date parser — the
 // hand-rolled replacement for the TS side's chrono-node. Scope is
 // deliberately narrow (see specs/go-port/04-nl-dates.md): just the
-// phrases Joe actually types. Anything else is an error.
+// common natural-language phrases. Anything else is an error.
 //
 // Two entry points mirror the TS:
 //   ParseDateTime(raw, now) — for --when. Returns wall-clock in local TZ.

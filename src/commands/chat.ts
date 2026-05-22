@@ -362,7 +362,7 @@ async function scanMessageMentions(
 	}
 
 	// Resolve in order. An earlier @<node> mention narrows the project
-	// lookup target for subsequent untyped tokens (so `@joe-inc` on a
+	// lookup target for subsequent untyped tokens (so `@acme-inc` on a
 	// message routed to fedora resolves against fedora's projects).
 	let contextNode = existing.node;
 	const resolved: ResolvedMention[] = [];
