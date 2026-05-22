@@ -21,6 +21,16 @@ The token lands at `~/.config/mm/auth.json`. Manifest + Card caches at `~/.mm-cl
 
 The second symlink matters: the local agent (when started by launchd) gives its bash-tool subprocesses a stripped PATH that includes `~/.mm/pi-agent/bin` but *not* `~/.local/bin`. Without the symlink, the agent loses an LLM turn to `which mm` discovery on every chat that needs the CLI.
 
+### Upgrades & Self-Updates
+
+The Go CLI supports native self-upgrades over secure connections:
+* **Check for updates**: `mm update --check`
+* **Apply the latest update**: `mm update`
+* **Install a specific version**: `mm update --version v0.1.0`
+
+The client automatically queries the Hub at `https://chat.meta-me.uk/dist/mm/latest` to resolve the version, downloads the correct platform binary (`mm-darwin-arm64`, `mm-darwin-amd64`, `mm-linux-arm64`, or `mm-linux-amd64`), verifies it against `SHA256SUMS`, and performs an atomic overwrite.
+
+
 ## What you can do
 
 ### Discovery

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -21,9 +22,38 @@ func NewWhoamiCmd() *cobra.Command {
 				return err
 			}
 			if s == nil {
+				wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+				if wantJSON {
+					outMap := map[string]interface{}{
+						"authenticated": false,
+						"error":         "Not authenticated. Run `mm login` first.",
+					}
+					out, _ := json.MarshalIndent(outMap, "", "  ")
+					cmd.Println(string(out))
+					os.Exit(1)
+				}
 				fmt.Println("Not authenticated. Run `mm login` first.")
 				os.Exit(1)
 			}
+
+			wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+			if wantJSON {
+				outMap := map[string]interface{}{
+					"authenticated": true,
+					"userName":      s.UserName,
+					"userEmail":     s.UserEmail,
+					"userId":        s.UserID,
+					"prefix":        s.Prefix,
+					"createdAt":     s.CreatedAt,
+				}
+				out, err := json.MarshalIndent(outMap, "", "  ")
+				if err != nil {
+					return fmt.Errorf("marshal JSON: %w", err)
+				}
+				cmd.Println(string(out))
+				return nil
+			}
+
 			fmt.Printf("User:  %s (%s)\n", s.UserName, s.UserEmail)
 			fmt.Printf("ID:    %s\n", s.UserID)
 			// Match TS: prefix is the saved 8-char prefix; createdAt sliced to YYYY-MM-DD.

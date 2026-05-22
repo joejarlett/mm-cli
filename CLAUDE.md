@@ -62,3 +62,9 @@ internal/
 
 - Cobra constraints: leaf commands with no positional parameters must enforce `Args: cobra.NoArgs` to reject arbitrary inputs gracefully.
 - Test suites: Table-driven assertions utilizing mocked clients rather than making live HTTP/WebSocket tailnet connections.
+- **Agent Output Excellence**:
+  - All query, inspect, and status commands must support the `--json` output option.
+  - Redirect all informational, retry, and update alerts to `os.Stderr` so they do not pollute `os.Stdout` (which is reserved for parseable payload data).
+  - Check for `MM_AGENT=true` or `MM_SOURCE=agent` to disable ANSI colors and terminal spinner loaders automatically.
+  - Never run an interactive pager; all help and output streams must print directly to standard output/error.
+
