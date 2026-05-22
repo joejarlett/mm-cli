@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"mm-cli/internal/cmd"
+	"mm-cli/internal/cmd/admin"
+	"mm-cli/internal/db"
 	"mm-cli/internal/version"
 )
 
@@ -21,7 +23,9 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	if err := root.ExecuteContext(ctx); err != nil {
+	err := root.ExecuteContext(ctx)
+	db.Close()
+	if err != nil {
 		// Cobra prints its own usage on Args errors; for our RunE errors we
 		// want the TS-style "❌ msg" prefix on stderr + exit 1.
 		fmt.Fprintf(os.Stderr, "❌ %s\n", err.Error())
@@ -59,6 +63,17 @@ func newRootCmd() *cobra.Command {
 	// Phase 3 subcommands.
 	root.AddCommand(cmd.NewChatCmd())
 	root.AddCommand(cmd.NewProjectCmd())
+
+	// Phase 4 subcommands.
+	root.AddCommand(cmd.NewCardsCmd())
+	root.AddCommand(cmd.NewManifestCmd())
+	root.AddCommand(cmd.NewV2Cmd())
+	root.AddCommand(cmd.NewKbCmd())
+	root.AddCommand(cmd.NewCrmCmd())
+	for _, c := range cmd.NewAppCommands() {
+		root.AddCommand(c)
+	}
+	root.AddCommand(admin.NewAdminCmd())
 
 	return root
 }
