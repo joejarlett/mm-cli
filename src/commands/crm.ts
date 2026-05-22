@@ -36,7 +36,12 @@ Subcommands:
   rpc <feature.action> [json]
                           Raw RPC against the CRM's /api/v2
 
-Add --json for parseable output. Auth via \`mm login\`.`);
+Add --json for parseable output. Auth via \`mm login\`.
+
+Pin an instance (single-user, multi-CRM): set MM_CRM_INSTANCE=<uuid> in
+~/.mm/.env or prefix inline (\`MM_CRM_INSTANCE=<uuid> mm crm log "..."\`).
+Without a pin the server falls back to the user's first CRM instance,
+which is fine for most accounts but ambiguous when you own several.`);
 }
 
 export async function crmDispatch(command: string, args: string[], flags: { json?: boolean }) {
@@ -54,7 +59,11 @@ export async function crmDispatch(command: string, args: string[], flags: { json
 			return await crmSurface(args, json);
 
 		case 'contacts':
-			if (args[0] === 'find') return await crmFind(args.slice(1).join(' '), json);
+			if (args[0] === 'find') {
+				const all = args.includes('--all');
+				const query = args.slice(1).filter((a) => a !== '--all').join(' ');
+				return await crmContactsFind(query, all, json);
+			}
 			return await crmTree(json);
 
 		case 'projects':
@@ -157,6 +166,40 @@ async function crmFind(query: string, json: boolean) {
 		console.log(`  ${hit.id?.slice(0, 8)}  ${name}`);
 		if (snippet) console.log(`        ${snippet}`);
 		console.log('');
+	}
+}
+
+// `mm crm contacts find "Milbotix"` — by-name lookup over contact
+// nodes. Different intent (and different action) to `mm crm find`,
+// which is a semantic search over interactions. By default this hides
+// untriaged prospects; pass --all to include them.
+async function crmContactsFind(query: string, includeProspects: boolean, json: boolean) {
+	if (!query) {
+		console.error('Usage: mm crm contacts find <query> [--all]');
+		process.exit(1);
+	}
+	const data = await crmApi('contact', 'search', { query, includeProspects });
+	if (json) { console.log(JSON.stringify(data, null, 2)); return; }
+
+	const hits = data?.data || [];
+	const hidden = Number(data?.meta?.prospectsHidden ?? 0);
+	if (hits.length === 0) {
+		if (hidden > 0) {
+			console.log(`No matching members. ${hidden} matching prospect${hidden === 1 ? '' : 's'} hidden — re-run with --all to include, or triage from /review.`);
+		} else {
+			console.log('No matching contacts.');
+		}
+		return;
+	}
+	for (const hit of hits) {
+		const a = hit.attributes || {};
+		const tag = a.isProspect ? ' [prospect]' : '';
+		const projects = a.projects ? ` · ${a.projects}` : '';
+		const touch = a.lastInteractionAt ? ` · last ${String(a.lastInteractionAt).slice(0, 10)}` : '';
+		console.log(`  ${String(hit.id).slice(0, 8)}  ${a.title}${tag}${projects}${touch}`);
+	}
+	if (hidden > 0) {
+		console.log(`\n  (+${hidden} prospect${hidden === 1 ? '' : 's'} hidden — pass --all to include)`);
 	}
 }
 

@@ -41,7 +41,7 @@ import { loadManifest, resolveAction, type AppManifest } from '../manifest';
 import { getTailscaleSuffix } from '../tailscale';
 import { loadConfig } from '../config';
 
-const { hubUrl: HUB_URL, localAgentUrl: AGENT_BASE } = loadConfig();
+const { hubUrl: HUB_URL, localAgentUrl: AGENT_BASE, crmInstanceId: CRM_INSTANCE } = loadConfig();
 
 // ─── Hub mm-RPC ────────────────────────────────────────────────────────
 
@@ -131,7 +131,9 @@ export async function v2(
 		headers['authorization'] = `Bearer ${auth.token}`;
 		if (auth.userId) headers['x-hub-user-id'] = auth.userId;
 	}
-	if (opts.instanceId) headers['x-hub-instance-id'] = opts.instanceId;
+	const effectiveInstanceId =
+		opts.instanceId ?? (appSlug === 'crm' ? CRM_INSTANCE : undefined);
+	if (effectiveInstanceId) headers['x-hub-instance-id'] = effectiveInstanceId;
 
 	const res = await fetch(`${app.url}/api/v2`, {
 		method: 'POST',
@@ -172,13 +174,22 @@ export async function rpc<T = unknown>(
 	if (!auth) throw new Error('Not authenticated. Run `mm login` first.');
 
 	const app = resolveApp(appSlug);
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${auth.token}`,
+		'X-Hub-User-Id': auth.userId,
+		'Content-Type': 'application/json',
+	};
+	// Pin the CRM instance from config (MM_CRM_INSTANCE in ~/.mm/.env or
+	// an inline override) so the server doesn't have to guess from the
+	// user's session-wide instance list. Cookie-session web flows fall
+	// back through hooks.server.ts; for CLI Bearer auth this header is
+	// the only way to be unambiguous when the user owns >1 instance.
+	if (appSlug === 'crm' && CRM_INSTANCE) {
+		headers['X-Hub-Instance-Id'] = CRM_INSTANCE;
+	}
 	const res = await fetch(`${app.url}/api/rpc`, {
 		method: 'POST',
-		headers: {
-			Authorization: `Bearer ${auth.token}`,
-			'X-Hub-User-Id': auth.userId,
-			'Content-Type': 'application/json',
-		},
+		headers,
 		body: JSON.stringify({ feature, action, payload: payload ?? {} }),
 	});
 

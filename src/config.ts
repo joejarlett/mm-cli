@@ -24,6 +24,15 @@ export interface Config {
 	localAgentUrl: string;
 	/** Hub Postgres connection string. Optional — only admin commands need it. */
 	databaseUrl: string | undefined;
+	/**
+	 * Default CRM instance UUID for `mm crm …` calls. When set, the CLI
+	 * sends it as `X-Hub-Instance-Id` on every CRM request so the server
+	 * doesn't have to guess from the user's instance list. Override per
+	 * invocation by re-exporting the env var inline:
+	 *   `MM_CRM_INSTANCE=<uuid> mm crm log "..."`
+	 * Most users need to set this once in `~/.mm/.env`.
+	 */
+	crmInstanceId: string | undefined;
 }
 
 /**
@@ -65,6 +74,7 @@ export function loadConfig(): Config {
 		authUrl: process.env.MM_AUTH_URL ?? 'https://auth.meta-me.uk',
 		localAgentUrl: process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142',
 		databaseUrl: process.env.MM_DATABASE_URL ?? process.env.DATABASE_URL,
+		crmInstanceId: process.env.MM_CRM_INSTANCE?.trim() || undefined,
 	};
 	return cached;
 }
