@@ -11,19 +11,11 @@
  */
 import { hubApi } from '../hub';
 import { parseNlDate } from '../nl-date';
-
-type Task = {
-	id: string;
-	title: string;
-	notes?: string;
-	due?: string;
-	status: 'needsAction' | 'completed';
-	webViewLink?: string;
-};
-
-type Group = { listId: string; listTitle: string; tasks: Task[] };
-type ListResp = { groups: Group[]; accountSlug: string | null };
-type AddResp = { id: string; listId: string; listTitle: string };
+import type {
+	HubTasksListResp,
+	HubTasksAddResp,
+	HubTasksCompleteResp,
+} from '../wire';
 
 export async function tasksDispatch(
 	command: string,
@@ -115,7 +107,7 @@ async function tasksList(args: string[], json: boolean) {
 	if (flags.all) payload.all = true;
 	if (flags.account) payload.accountSlug = flags.account;
 
-	const data = await hubApi<ListResp>('tasks', 'list', payload);
+	const data = await hubApi<HubTasksListResp>('tasks', 'list', payload);
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -163,7 +155,7 @@ async function tasksAdd(args: string[], json: boolean) {
 	if (flags.notes) payload.notes = flags.notes;
 	if (flags.account) payload.accountSlug = flags.account;
 
-	const data = await hubApi<AddResp>('tasks', 'add', payload);
+	const data = await hubApi<HubTasksAddResp>('tasks', 'add', payload);
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -187,7 +179,7 @@ async function tasksDone(args: string[], json: boolean) {
 		process.exit(1);
 	}
 
-	const data = await hubApi<{ ok: true }>('tasks', 'complete', {
+	const data = await hubApi<HubTasksCompleteResp>('tasks', 'complete', {
 		listId,
 		taskId,
 		...(flags.account ? { accountSlug: flags.account } : {})

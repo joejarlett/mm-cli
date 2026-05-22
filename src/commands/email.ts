@@ -7,6 +7,15 @@
  */
 
 import { loadAuth } from '../auth';
+import type {
+	HubEmailListResp,
+	HubEmailGetResp,
+	HubEmailCreateResp,
+	HubEmailSendResp,
+	HubEmailResendResp,
+	HubInboxSearchResp,
+	HubInboxReadResp,
+} from '../wire';
 
 const HUB_URL = 'https://meta-me.uk';
 
@@ -40,30 +49,6 @@ async function hubApi(feature: string, action: string, payload?: Record<string, 
 	return (parsed as { data: unknown }).data;
 }
 
-type EmailListRow = {
-	id: string;
-	userId: string | null;
-	toAddress: string;
-	subject: string;
-	template: string | null;
-	status: string;
-	triggeredBy: string | null;
-	createdAt: string;
-	sentAt: string | null;
-	failedAt: string | null;
-	error: string | null;
-	parentId: string | null;
-};
-
-type EmailListResponse = { rows: EmailListRow[]; nextCursor: string | null };
-
-type EmailDetail = EmailListRow & {
-	fromAddress: string;
-	bodyHtml: string;
-	bodyText: string;
-	templateParams: Record<string, unknown> | null;
-	messageId: string | null;
-};
 
 export async function emailDispatch(
 	command: string,
@@ -151,7 +136,7 @@ function parseListFlags(args: string[]): {
 
 async function emailList(args: string[], json: boolean) {
 	const payload = parseListFlags(args);
-	const data = (await hubApi('email', 'list', payload)) as EmailListResponse;
+	const data = (await hubApi('email', 'list', payload)) as HubEmailListResp;
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -182,7 +167,7 @@ async function emailGet(id: string, json: boolean) {
 		console.error('Usage: mm email get <id>');
 		process.exit(1);
 	}
-	const data = (await hubApi('email', 'get', { id })) as EmailDetail;
+	const data = (await hubApi('email', 'get', { id })) as HubEmailGetResp;
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -285,7 +270,7 @@ async function emailSend(args: string[], json: boolean, opts: { draftOnly?: bool
 		html: flags.body,
 		text: flags.text ?? stripHtml(flags.body),
 		template: flags.template
-	})) as { id: string };
+	})) as HubEmailCreateResp;
 
 	if (opts.draftOnly) {
 		if (json) {
@@ -298,10 +283,7 @@ async function emailSend(args: string[], json: boolean, opts: { draftOnly?: bool
 		return;
 	}
 
-	const sent = (await hubApi('email', 'send', { id: created.id })) as {
-		success: boolean;
-		error?: string;
-	};
+	const sent = (await hubApi('email', 'send', { id: created.id })) as HubEmailSendResp;
 
 	if (json) {
 		console.log(JSON.stringify({ id: created.id, ...sent }, null, 2));
@@ -322,11 +304,7 @@ async function emailResend(id: string, json: boolean) {
 		console.error('Usage: mm email resend <id>');
 		process.exit(1);
 	}
-	const data = (await hubApi('email', 'resend', { id })) as {
-		newId: string;
-		success: boolean;
-		error?: string;
-	};
+	const data = (await hubApi('email', 'resend', { id })) as HubEmailResendResp;
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -340,21 +318,6 @@ async function emailResend(id: string, json: boolean) {
 }
 
 // ─── Inbox (Gmail through gateway) ────────────────────────────────────
-
-type InboxMessage = {
-	id: string;
-	threadId: string;
-	subject: string;
-	from: string;
-	to: string;
-	date: string;
-	snippet: string;
-	unread: boolean;
-};
-
-type InboxSearchResponse = { messages: InboxMessage[]; accountSlug: string | null };
-
-type InboxFullMessage = InboxMessage & { cc: string; body: string; labels: string[] };
 
 function parseInboxFlags(args: string[]): {
 	q?: string;
@@ -385,7 +348,7 @@ function parseInboxFlags(args: string[]): {
 
 async function inboxSearch(args: string[], json: boolean) {
 	const flags = parseInboxFlags(args);
-	const data = (await hubApi('email', 'search', flags)) as InboxSearchResponse;
+	const data = (await hubApi('email', 'search', flags)) as HubInboxSearchResp;
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -414,7 +377,7 @@ async function inboxRead(id: string, json: boolean) {
 		console.error('Usage: mm email read <id>');
 		process.exit(1);
 	}
-	const data = (await hubApi('email', 'read', { id })) as InboxFullMessage;
+	const data = (await hubApi('email', 'read', { id })) as HubInboxReadResp;
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;

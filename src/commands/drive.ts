@@ -1,12 +1,14 @@
 /**
- * mm drive — light Drive surface, mainly for the doc-from-markdown
- * flow that turns a local `.md` into a native Google Doc.
+ * mm drive — light Drive surface: list, doc-from-markdown, rename/move.
  *
  *   mm drive ls [--q "name contains 'invoice'"] [--max 25]
  *
  *   mm drive doc <name> --file path/to/notes.md
  *   mm drive doc <name> < notes.md               # stdin works too
  *   mm drive doc <name> --text "Plain string body" --mime text/plain
+ *
+ *   mm drive mv <id> --name "New name"
+ *   mm drive mv <id> --parent <folder-id> [--unparent <old-folder-id>]
  *
  * `<name>` is what the Doc will be called in Drive. The content is
  * converted by Drive on import — markdown becomes formatted Doc
@@ -15,17 +17,11 @@
  */
 import { readFileSync } from 'node:fs';
 import { hubApi } from '../hub';
-
-type DriveFile = {
-	id: string;
-	name: string;
-	mimeType: string;
-	modifiedTime?: string;
-	webViewLink?: string;
-};
-
-type ListResp = { files: DriveFile[]; accountSlug: string | null };
-type CreateDocResp = { id: string; name: string; webViewLink: string | null };
+import type {
+	HubDriveListResp,
+	HubDriveCreateDocResp,
+	HubDriveUpdateResp,
+} from '../wire';
 
 export async function driveDispatch(
 	command: string,
@@ -45,6 +41,10 @@ export async function driveDispatch(
 			return driveList(args, json);
 		case 'doc':
 			return driveDoc(args, json);
+		case 'rename':
+		case 'mv':
+		case 'move':
+			return driveMove(args, json);
 		default:
 			console.error(`Unknown command: mm drive ${command}`);
 			console.error('Try `mm drive help`.');
@@ -56,15 +56,25 @@ export function printDriveHelp() {
 	console.log(`mm drive — Google Drive
 
 Subcommands:
-  ls | list               List files (filter with --q)
-  doc <file.md>           Create a Google Doc from a markdown file
+  ls | list                List files (filter with --q)
+  doc <file.md>            Create a Google Doc from a markdown file
+  mv | rename | move <id>  Rename and/or move a file
+
+Examples:
+  mm drive mv <id> --name "New name"
+  mm drive mv <id> --parent <folder-id>
+  mm drive mv <id> --parent <new> --unparent <old>      # move
+  mm drive mv <id> --name "X" --parent <new> --unparent <old>
 
 Flags:
-  --q "<query>"           Search query (Drive search syntax)
-  --limit <n>             Max results (default 20)
-  --folder <id>           Target folder for doc creation
-  --account <slug>        Pick a linked Google account
-  --json                  Parseable output`);
+  --q "<query>"            Search query (Drive search syntax)
+  --max <n>                Max results (default 20)
+  --name "<name>"          New name for mv
+  --parent <folder-id>     Add a parent (move into)
+  --unparent <folder-id>   Remove a parent (move out of)
+  --folder <id>            Target folder for doc creation
+  --account <slug|email>   Pick a linked Google account
+  --json                   Parseable output`);
 }
 
 function parseFlags(args: string[]): { flags: Record<string, string>; positional: string[] } {
@@ -122,7 +132,7 @@ async function driveList(args: string[], json: boolean) {
 	if (flags.max) payload.max = Number(flags.max);
 	if (flags.account) payload.accountSlug = flags.account;
 
-	const data = await hubApi<ListResp>('drive', 'list', payload);
+	const data = await hubApi<HubDriveListResp>('drive', 'list', payload);
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -146,6 +156,32 @@ async function readStdin(): Promise<string> {
 		chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 	}
 	return Buffer.concat(chunks).toString('utf-8');
+}
+
+async function driveMove(args: string[], json: boolean) {
+	const { flags, positional } = parseFlags(args);
+	const fileId = positional[0];
+	if (!fileId) {
+		console.error('Usage: mm drive mv <id> [--name "X"] [--parent <folder-id>] [--unparent <folder-id>]');
+		process.exit(1);
+	}
+	const payload: Record<string, unknown> = { fileId };
+	if (flags.name) payload.name = flags.name;
+	if (flags.parent) payload.addParents = [flags.parent];
+	if (flags.unparent) payload.removeParents = [flags.unparent];
+	if (flags.account) payload.accountSlug = flags.account;
+	if (!payload.name && !payload.addParents && !payload.removeParents) {
+		console.error('Nothing to do — pass at least one of --name, --parent, --unparent.');
+		process.exit(1);
+	}
+
+	const data = await hubApi<HubDriveUpdateResp>('drive', 'update', payload);
+	if (json) {
+		console.log(JSON.stringify(data, null, 2));
+		return;
+	}
+	console.log(`✓ ${data.name}`);
+	if (data.webViewLink) console.log(`  ${data.webViewLink}`);
 }
 
 async function driveDoc(args: string[], json: boolean) {
@@ -177,7 +213,7 @@ async function driveDoc(args: string[], json: boolean) {
 		process.exit(1);
 	}
 
-	const data = await hubApi<CreateDocResp>('drive', 'createDoc', {
+	const data = await hubApi<HubDriveCreateDocResp>('drive', 'createDoc', {
 		name,
 		content,
 		sourceMime,

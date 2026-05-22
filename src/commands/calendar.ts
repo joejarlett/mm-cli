@@ -11,21 +11,7 @@
  */
 import { hubApi } from '../hub';
 import { parseNlDateTime } from '../nl-date';
-
-type EventRow = {
-	id: string;
-	summary: string;
-	start: string;
-	end: string;
-	location: string | null;
-	htmlLink: string | null;
-	attendees: number;
-	allDay: boolean;
-};
-
-type ListResp = { events: EventRow[]; rangeDays: number; accountSlug: string | null };
-
-type CreateResp = { id: string; htmlLink: string | null; summary: string; start: string; end: string };
+import type { HubCalendarListResp, HubCalendarCreateResp } from '../wire';
 
 export async function calendarDispatch(
 	command: string,
@@ -113,7 +99,7 @@ async function calendarList(args: string[], json: boolean) {
 	if (flags.days) payload.days = Number(flags.days);
 	if (flags.q) payload.q = flags.q;
 
-	const data = await hubApi<ListResp>('calendar', 'list', payload);
+	const data = await hubApi<HubCalendarListResp>('calendar', 'list', payload);
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
@@ -194,7 +180,7 @@ async function calendarNew(args: string[], json: boolean) {
 		...(flags.account ? { accountSlug: flags.account } : {})
 	};
 
-	const data = await hubApi<CreateResp>('calendar', 'create', payload);
+	const data = await hubApi<HubCalendarCreateResp>('calendar', 'create', payload);
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;
