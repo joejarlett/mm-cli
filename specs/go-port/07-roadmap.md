@@ -142,6 +142,10 @@ Acceptance:
 - Two weeks of clean Go usage.
 - TS source remains in the repo as historical reference + diff target.
 - No re-login needed (`auth.json` shape unchanged).
+- **Output parity is shape, not bytes.** Earlier phases aimed at byte-for-byte output identity; the Markdown-output refactor (`fea4f93`) deliberately diverged for agent consumption. The contract during cutover is now:
+  - `--json` mode: identical JSON shape (field names, nesting, types) to TS. A `diff <(mm cmd --json) <(mm-go cmd --json)` must match (excluding ordering of object keys).
+  - Default plaintext: agent-optimal Markdown per [09-agent-excellence.md](09-agent-excellence.md), no longer required to byte-match TS. Visual differences (`-` bullets vs whitespace columns) are expected.
+- Mentions parser parity verified — `mm-go chat send "@fedora @acme-inc do X"` resolves identically to TS, including the leading-block strip + mid-sentence preservation rule.
 
 Estimate: passive observation period.
 

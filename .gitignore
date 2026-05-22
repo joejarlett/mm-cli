@@ -4,3 +4,7 @@ node_modules/
 .*.bun-build
 .DS_Store
 
+# Build artifact — Go binary produced by `go build -o mm ./cmd/mm`. Lives
+# only on the dev machine; release binaries ship via dist-go/ + the hub.
+/mm
+
