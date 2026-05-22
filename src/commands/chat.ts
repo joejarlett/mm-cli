@@ -6,13 +6,8 @@
  * URL of the named instance from the hub. Same code path either way.
  */
 
-import { hubApi } from '../hub';
-import { getTailscaleSuffix } from '../tailscale';
-import type {
-	HubInstance,
-	HubInstanceListResp,
-	AgentModelsListResp,
-} from '../wire';
+import { hub as hubApi, agentBase, agentFetch, loadNodes } from '../http/client';
+import type { HubInstanceListResp, AgentModelsListResp } from '../wire';
 
 const AGENT_BASE = process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142';
 
@@ -76,36 +71,6 @@ const UUID_RE_CLI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 function getFlag(args: string[], name: string): string | undefined {
 	const i = args.indexOf(name);
 	return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
-}
-
-/**
- * HTTP base URL for the targeted agent. No node = local agent. With node =
- * resolve via the hub + local tailscaled MagicDNS suffix.
- */
-async function agentBase(node: string | undefined): Promise<{ http: string; ws: string; displayName: string }> {
-	if (!node) {
-		return {
-			http: AGENT_BASE,
-			ws: AGENT_BASE.replace(/^http/, 'ws'),
-			displayName: 'local',
-		};
-	}
-	const resolved = await resolveNode(node);
-	return {
-		http: resolved.baseUrl,
-		ws: resolved.baseUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
-		displayName: resolved.displayName,
-	};
-}
-
-async function agentFetch(node: string | undefined, path: string, init?: RequestInit): Promise<Response> {
-	const { http, displayName } = await agentBase(node);
-	const url = `${http}${path}`;
-	try {
-		return await fetch(url, init);
-	} catch (err) {
-		throw new Error(`fetch ${url} failed (${displayName}): ${err}`);
-	}
 }
 
 /**
@@ -518,48 +483,6 @@ async function consumeMentionsFromArgs(args: string[]): Promise<string[]> {
 	if (node && !existing.node) newArgs.push('--node', node);
 	if (project && !existing.project) newArgs.push('--project', project);
 	return newArgs;
-}
-
-let nodesCache: HubInstance[] | null = null;
-
-async function loadNodes(): Promise<HubInstance[]> {
-	if (nodesCache) return nodesCache;
-	const data = await hubApi<HubInstanceListResp>('instance', 'list', {
-		slugs: ['chat', 'agent'],
-	});
-	nodesCache = data.instances ?? [];
-	return nodesCache;
-}
-
-/**
- * Resolve `--node <name>` to a base URL fronted by the local tailscaled's
- * MagicDNS suffix, so cert + connection stay in sync across suffix rotations.
- * The stored `app_instance.url` provides the bare hostname + port; the suffix
- * comes from `tailscale status --json`.
- */
-async function resolveNode(name: string): Promise<{ baseUrl: string; displayName: string }> {
-	const nodes = await loadNodes();
-	const lower = name.toLowerCase();
-	const matches = nodes.filter((n) => n.name.toLowerCase() === lower);
-	if (matches.length === 0) {
-		const known = nodes.map((n) => n.name).join(', ') || '(none registered)';
-		throw new Error(`No node named '${name}'. Known: ${known}. Try: mm chat nodes`);
-	}
-	if (matches.length > 1) {
-		throw new Error(`Multiple nodes named '${name}'. Disambiguate via the hub.`);
-	}
-	const row = matches[0];
-	if (!row.url) {
-		throw new Error(`Node '${row.name}' has no URL registered.`);
-	}
-	const parsed = new URL(row.url);
-	const bare = parsed.hostname.split('.')[0];
-	const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
-	const suffix = getTailscaleSuffix();
-	return {
-		baseUrl: `https://${bare}.${suffix}:${port}`,
-		displayName: row.name,
-	};
 }
 
 async function listNodes(json: boolean) {

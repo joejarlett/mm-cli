@@ -15,34 +15,10 @@
  * Escape hatch: mm crm rpc <feature> <action> [k=v ...]
  */
 
-import { loadAuth } from '../auth';
+import { rpc } from '../http/client';
 
-const CRM_URL = 'https://crm.meta-me.uk';
-
-async function crmApi(feature: string, action: string, payload?: Record<string, any>) {
-	const auth = loadAuth();
-	if (!auth) throw new Error('Not authenticated. Run `mm login` first.');
-
-	const headers: Record<string, string> = {
-		'Authorization': `Bearer ${auth.token}`,
-		'X-Hub-User-Id': auth.userId,
-		'Content-Type': 'application/json'
-	};
-
-	const body = JSON.stringify({ feature, action, payload: payload || {} });
-	const res = await fetch(`${CRM_URL}/api/rpc`, {
-		method: 'POST',
-		headers,
-		body
-	});
-
-	if (!res.ok) {
-		const text = await res.text();
-		throw new Error(`CRM API error (${res.status}): ${text.slice(0, 200)}`);
-	}
-
-	return res.json();
-}
+const crmApi = (feature: string, action: string, payload?: Record<string, any>) =>
+	rpc<any>('crm', feature, action, payload);
 
 export function printCrmHelp() {
 	console.log(`mm crm — CRM (crm-v2)

@@ -5,34 +5,10 @@
  * with the user's mm API key for authentication.
  */
 
-import { loadAuth } from '../auth';
+import { rpc } from '../http/client';
 
-const KB_URL = 'https://kb.meta-me.uk';
-
-async function kbApi(feature: string, action: string, payload?: Record<string, any>) {
-	const auth = loadAuth();
-	if (!auth) throw new Error('Not authenticated. Run `mm login` first.');
-
-	const headers: Record<string, string> = {
-		'Authorization': `Bearer ${auth.token}`,
-		'X-Hub-User-Id': auth.userId,
-		'Content-Type': 'application/json'
-	};
-
-	const body = JSON.stringify({ feature, action, payload: payload || {} });
-	const res = await fetch(`${KB_URL}/api/rpc`, {
-		method: 'POST',
-		headers,
-		body
-	});
-
-	if (!res.ok) {
-		const text = await res.text();
-		throw new Error(`KB API error (${res.status}): ${text.slice(0, 200)}`);
-	}
-
-	return res.json();
-}
+const kbApi = (feature: string, action: string, payload?: Record<string, any>) =>
+	rpc<any>('kb', feature, action, payload);
 
 export function printKbHelp() {
 	console.log(`mm kb — Knowledge Base
