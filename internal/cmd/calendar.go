@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"mm-cli/internal/http"
+	"mm-cli/internal/nldate"
 	"mm-cli/internal/wire"
 )
 
@@ -117,26 +119,121 @@ func runCalendarList(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// newCalendarNewCmd is a stub for Phase 2b. Args are accepted but the
-// implementation lands once the NL date integration is wired through.
 func newCalendarNewCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	c := &cobra.Command{
 		Use:     "new",
 		Aliases: []string{"create"},
-		Short:   "Quick-create a calendar event (not yet implemented in Go)",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return fmt.Errorf("mm calendar new — not yet implemented in the Go port, use TS mm for now")
-		},
+		Short:   "Quick-create a calendar event",
+		RunE:    runCalendarNew,
 	}
-	cmd.Flags().String("title", "", "Event title")
-	cmd.Flags().String("when", "", "Natural-language start time")
-	cmd.Flags().String("end", "", "End time (bare HH:MM relative, or NL/ISO)")
-	cmd.Flags().String("at", "", "Location")
-	cmd.Flags().String("describe", "", "Description")
-	cmd.Flags().String("invite", "", "Comma-separated attendee emails")
-	cmd.Flags().String("notify", "", "Notify: all|externalOnly|none")
-	cmd.Flags().String("account", "", "Pick a linked Google account")
-	return cmd
+	c.Flags().String("title", "", "Event title (required)")
+	c.Flags().String("when", "", "Natural-language start time (required)")
+	c.Flags().String("end", "", "End time (bare HH:MM relative, or NL/ISO)")
+	c.Flags().String("at", "", "Location")
+	c.Flags().String("describe", "", "Description")
+	c.Flags().String("invite", "", "Comma-separated attendee emails")
+	c.Flags().String("notify", "", "Notify: all|externalOnly|none")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func runCalendarNew(cmd *cobra.Command, _ []string) error {
+	title, _ := cmd.Flags().GetString("title")
+	when, _ := cmd.Flags().GetString("when")
+	end, _ := cmd.Flags().GetString("end")
+	at, _ := cmd.Flags().GetString("at")
+	describe, _ := cmd.Flags().GetString("describe")
+	invite, _ := cmd.Flags().GetString("invite")
+	notify, _ := cmd.Flags().GetString("notify")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	if title == "" || when == "" {
+		return fmt.Errorf("Usage: mm calendar new --title \"X\" --when \"tomorrow 14:00\" [--end \"15:00\"] [--at \"...\"] [--invite a@x.com,b@y.com] [--describe \"...\"]")
+	}
+
+	start, err := nldate.ParseDateTime(when, time.Now())
+	if err != nil {
+		return err
+	}
+	var endISO string
+	if end != "" {
+		// Bare HH:MM → anchor to start day; otherwise treat as NL/ISO.
+		if matchedTime := bareTimeRe.FindStringSubmatch(end); matchedTime != nil {
+			endDay := time.Date(start.Date.Year(), start.Date.Month(), start.Date.Day(),
+				atoiOrZero(matchedTime[1]), atoiOrZero(matchedTime[2]), 0, 0, start.Date.Location())
+			endISO = formatLocalISO(endDay)
+		} else {
+			r, err := nldate.ParseDateTime(end, time.Now())
+			if err != nil {
+				return err
+			}
+			endISO = r.ISO
+		}
+	}
+
+	req := map[string]any{"title": title, "when": start.ISO}
+	if endISO != "" {
+		req["end"] = endISO
+	}
+	if at != "" {
+		req["location"] = at
+	}
+	if describe != "" {
+		req["description"] = describe
+	}
+	if invite != "" {
+		var atts []string
+		for _, p := range strings.Split(invite, ",") {
+			if s := strings.TrimSpace(p); s != "" {
+				atts = append(atts, s)
+			}
+		}
+		if len(atts) > 0 {
+			req["attendees"] = atts
+		}
+	}
+	if notify != "" {
+		req["sendUpdates"] = notify
+	}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+
+	client := http.New()
+	var resp wire.HubCalendarCreateResp
+	if err := client.Hub(cmd.Context(), "calendar", "create", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	fmt.Printf("✓ Created: %s\n", resp.Summary)
+	fmt.Printf("  %s %s–%s\n", fmtDay(resp.Start), fmtTime(resp.Start, false), fmtTime(resp.End, false))
+	if resp.HTMLLink != nil && *resp.HTMLLink != "" {
+		fmt.Printf("  %s\n", *resp.HTMLLink)
+	}
+	return nil
+}
+
+var bareTimeRe = regexp.MustCompile(`^(\d{1,2}):(\d{2})$`)
+
+func atoiOrZero(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
+}
+
+func formatLocalISO(t time.Time) string {
+	return fmt.Sprintf("%04d-%02d-%02dT%02d:%02d:%02d",
+		t.Year(), int(t.Month()), t.Day(), t.Hour(), t.Minute(), t.Second())
 }
 
 // ─── Formatters (ported from src/commands/calendar.ts) ─────────────────

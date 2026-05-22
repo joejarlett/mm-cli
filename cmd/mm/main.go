@@ -50,6 +50,11 @@ func newRootCmd() *cobra.Command {
 
 	// Phase 2 subcommands.
 	root.AddCommand(cmd.NewCalendarCmd())
+	root.AddCommand(cmd.NewTasksCmd())
+	root.AddCommand(cmd.NewDriveCmd())
+	root.AddCommand(cmd.NewEmailCmd())
+	root.AddCommand(cmd.NewSttCmd())
+	root.AddCommand(cmd.NewTtsCmd())
 
 	return root
 }
