@@ -23,11 +23,15 @@ import { sttDispatch } from './commands/stt';
 import { ttsDispatch } from './commands/tts';
 import { v2Dispatch } from './commands/v2';
 import { manifestDispatch } from './commands/manifest';
+import { cardsDispatch } from './commands/cards';
+import { appDispatch } from './commands/app';
+import { APPS } from './apps';
 import { chatDispatch } from './commands/chat';
+import { projectDispatch } from './commands/project';
 import {
 	sqlDispatch,
 	appsDispatch,
-	appDispatch,
+	appDispatch as adminAppDispatch,
 	healthDispatch,
 	errorsDispatch,
 	errorDispatch,
@@ -48,18 +52,25 @@ Usage:
   mm kb <command> [args...]    Knowledge Base commands
   mm crm <command> [args...]   CRM commands
   mm chat <command> [args...]  Local agent threads (list/show/search)
+  mm project <command> [args...] Local agent project index (overview/detail/add)
   mm email <command> [args...] Platform email log (admin only)
   mm calendar [list|new] [args] Google Calendar — agenda + quick create
   mm tasks [list|add|done] [args] Google Tasks — list, add, complete
-  mm drive [ls|doc] [args]      Google Drive — list + doc-from-markdown
+  mm drive [ls|doc|mv] [args]   Google Drive — list, doc-from-markdown, rename/move
   mm stt <file>                Transcribe audio (wav/mp3/m4a/…)
   mm tts "<text>" [--out f] [--play] [--voice id] [--format wav|mp3]
                                 Synthesise speech
 
-  mm manifest [<app>]          List apps / show one app's full surface
+  mm cards [<app>] [--refresh] Capability matrix / per-app Agent Card
+  mm manifest [<app>]          Wire-level manifest (deeper than the Card)
+  mm <app> ask "..."           Ask any app a question (agent.chat)
+  mm <app> find "..."          Search an app (agent.search, where supported)
+  mm <app> do <tool> [k=v…]    Invoke a Card-declared tool
+  mm <app> <feature> <action>  Raw dispatch to <app>/api/v2
+
   mm v2 <app> <feature.action> [json] [--instance <uuid>]
-                                Generic dispatcher — call any app's
-                                /api/v2 endpoint with any action.
+                                (deprecated alias for the raw dispatch
+                                form above — prefer mm <app> <f> <a>)
 
 KB Commands:
   mm kb find <query>           Search documents
@@ -75,6 +86,17 @@ Chat Commands (local agent threads):
                                 Print messages in a thread
   mm chat search <query>        Substring search across messages
   mm chat projects              List known projects + thread counts
+
+Project Commands (local agent project index):
+  mm project list               List registered projects
+  mm project overview <name|path> [subpath]
+                                Folder-level summaries with drift counts
+                                (preferred first move for shape questions)
+  mm project detail <name|path> [subpath] [--search q] [--limit n] [--shallow]
+                                Per-file summaries under a folder
+  mm project add <path> [label] Register a folder as a project
+  mm project rebuild <name|path> [subpath]
+                                Drop cached rows and re-summarise
 
 CRM Commands:
   mm crm surface                Today's priorities
@@ -106,6 +128,10 @@ Drive Commands:
   mm drive doc <name> --file path.md
                                 Create a native Google Doc converted
                                 from local markdown (also accepts stdin).
+  mm drive mv <id> [--name "<new name>"]
+                   [--parent <folder-id>] [--unparent <folder-id>]
+                                Rename and/or move a file. Combine any
+                                of --name, --parent, --unparent.
 
 Email Commands (admin only):
   mm email list [--status=…] [--template=…] [--q=…]
@@ -191,6 +217,10 @@ async function main() {
 			case 'chat':
 				await chatDispatch(positional[1] || '', positional.slice(2), flags);
 				break;
+			case 'project':
+			case 'projects':
+				await projectDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
 			case 'email':
 				await emailDispatch(positional[1] || '', positional.slice(2), flags);
 				break;
@@ -224,6 +254,14 @@ async function main() {
 					refresh: args.includes('--refresh')
 				});
 				break;
+			case 'cards':
+			case 'card':
+				// mm cards [<app>] [--refresh]
+				await cardsDispatch(positional.slice(1), {
+					json: flags.json,
+					refresh: args.includes('--refresh')
+				});
+				break;
 			// ─── Hub-admin (ported from old mm) ───
 			case 'sql':
 				await sqlDispatch(positional.slice(1), { json: flags.json });
@@ -232,7 +270,7 @@ async function main() {
 				await appsDispatch(positional.slice(1), { json: flags.json });
 				break;
 			case 'app':
-				await appDispatch(positional.slice(1), { json: flags.json });
+				await adminAppDispatch(positional.slice(1), { json: flags.json });
 				break;
 			case 'health':
 				await healthDispatch(positional.slice(1), { json: flags.json });
@@ -244,6 +282,18 @@ async function main() {
 				await errorDispatch(positional.slice(1), { ...flags });
 				break;
 			default:
+				// Generic app dispatch: if `command` is a registered app slug
+				// that isn't otherwise handled above (kb/crm have explicit
+				// cases), route through the universal-verb dispatcher.
+				if (command && command in APPS) {
+					await appDispatch(command, positional.slice(1), {
+						json: flags.json,
+						instance: getFlagValue(args, '--instance'),
+						noValidate: args.includes('--no-validate'),
+						refresh: args.includes('--refresh')
+					});
+					break;
+				}
 				console.error(`Unknown command: ${command}`);
 				console.error('Run `mm --help` for available commands.');
 				process.exit(1);

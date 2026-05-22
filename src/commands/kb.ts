@@ -37,8 +37,8 @@ async function kbApi(feature: string, action: string, payload?: Record<string, a
 export function printKbHelp() {
 	console.log(`mm kb — Knowledge Base
 
-Subcommands:
-  find <query>            Search documents across collections
+Shortcuts:
+  find <query>            Semantic search across all notebooks
   tree [notebook]         List notebooks (or a single notebook's docs)
   peek <id>               Preview a document (title + summary)
   read <id>               Read a document's full body
@@ -46,10 +46,18 @@ Subcommands:
   notebooks               Alias for collections
   status                  KB health + auth check
 
-Anything else falls through to the generic dispatcher against
-kb.meta-me.uk/api/rpc as { feature, action, payload } — e.g.
-\`mm kb documents.searchCorpus '{"query":"…"}'\`. Add --json for
-parseable output.`);
+Feature-action dispatch (any feature.action known to the KB API):
+  mm kb <feature> <action> [key=value ...]
+
+Common examples:
+  mm kb research list collectionId=<uuid>
+  mm kb research create collectionId=<uuid> prompt="..." [execute=true]
+  mm kb research get id=<uuid>
+  mm kb documents search query="..." [collectionId=<uuid>]
+  mm kb documents create collectionId=<uuid> url="..."
+  mm kb jobs list
+
+Add --json for parseable output.`);
 }
 
 export async function kbDispatch(command: string, args: string[], flags: { json?: boolean }) {
@@ -195,19 +203,31 @@ async function kbStatus(json: boolean) {
 }
 
 async function kbPassThrough(command: string, args: string[], json: boolean) {
-	const params = new URLSearchParams();
-	params.set('feature', command);
-	if (args.length > 0) {
-		params.set('action', args[0]);
+	if (args.length === 0) {
+		console.error(`Usage: mm kb ${command} <action> [key=value ...]`);
+		console.error(`Run 'mm kb help' for examples.`);
+		process.exit(1);
 	}
+
+	const feature = command;
+	const action = args[0];
+	const payload: Record<string, unknown> = {};
+
 	for (let i = 1; i < args.length; i++) {
 		const eq = args[i].indexOf('=');
 		if (eq > 0) {
-			params.set(args[i].slice(0, eq), args[i].slice(eq + 1));
+			const key = args[i].slice(0, eq);
+			let val: unknown = args[i].slice(eq + 1);
+			// Type coercion
+			if (val === 'true') val = true;
+			else if (val === 'false') val = false;
+			else if (/^\d+$/.test(val as string)) val = parseInt(val as string, 10);
+			else if (/^\d+\.\d+$/.test(val as string)) val = parseFloat(val as string);
+			payload[key] = val;
 		}
 	}
 
-	const data = await kbApi(body.feature, body.action, body);
+	const data = await kbApi(feature, action, payload);
 	if (json) {
 		console.log(JSON.stringify(data, null, 2));
 		return;

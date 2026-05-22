@@ -15,7 +15,6 @@ export const APPS: Record<string, AppRegistryEntry> = {
 	kb: { slug: 'kb', url: 'https://kb.meta-me.uk', description: 'Knowledge Base' },
 	crm: { slug: 'crm', url: 'https://crm.meta-me.uk', description: 'CRM' },
 	finances: { slug: 'finances', url: 'https://finances.meta-me.uk', description: 'Finances' },
-	pi: { slug: 'pi', url: 'https://chat.jarlett.uk', description: 'Pi (chat agent)' },
 	gn: { slug: 'gn', url: 'https://grounded.ninja', description: 'GroundedNinja' },
 	analytics: {
 		slug: 'analytics',

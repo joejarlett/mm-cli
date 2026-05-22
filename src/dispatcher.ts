@@ -56,6 +56,13 @@ export async function dispatch(
 	const auth = loadAuth();
 	if (auth) {
 		headers['authorization'] = `Bearer ${auth.token}`;
+		// X-Hub-User-Id lets apps that resolve identity from headers
+		// (rather than re-validating the bearer) skip a round trip.
+		// Apps requiring `hub` auth (HMAC-signed) are not reachable from
+		// the CLI — those must be called via the hub itself.
+		if (auth.userId) {
+			headers['x-hub-user-id'] = auth.userId;
+		}
 	}
 	if (opts.instanceId) {
 		headers['x-hub-instance-id'] = opts.instanceId;
