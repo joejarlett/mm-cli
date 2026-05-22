@@ -43,10 +43,13 @@ func newRootCmd() *cobra.Command {
 
 	root.PersistentFlags().Bool("json", false, "Output as JSON")
 
-	// Phase 1 subcommands. More land in Phase 2+.
+	// Phase 1 subcommands.
 	root.AddCommand(cmd.NewLoginCmd())
 	root.AddCommand(cmd.NewLogoutCmd())
 	root.AddCommand(cmd.NewWhoamiCmd())
+
+	// Phase 2 subcommands.
+	root.AddCommand(cmd.NewCalendarCmd())
 
 	return root
 }
