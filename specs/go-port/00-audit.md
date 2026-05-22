@@ -33,8 +33,8 @@
     "token": "mm_<40 hex>",
     "prefix": "mm_xxxxx",
     "userId": "<uuid>",
-    "userName": "Joe Jarlett",
-    "userEmail": "joe.jarlett@gmail.com",
+    "userName": "Jane Doe",
+    "userEmail": "jane.doe@example.com",
     "createdAt": "2026-05-14T10:54:00.000Z"
   }
   ```

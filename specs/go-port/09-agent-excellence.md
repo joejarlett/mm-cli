@@ -27,10 +27,10 @@ When `--json` is specified, the CLI must:
 ```json
 {
   "authenticated": true,
-  "userName": "Joe Jarlett",
-  "userEmail": "joe.jarlett@gmail.com",
-  "userId": "019d7321-7b00-7b5b-874b-2b61a37c5585",
-  "prefix": "mm_9b2e8",
+  "userName": "Jane Doe",
+  "userEmail": "jane.doe@example.com",
+  "userId": "00000000-0000-0000-0000-000000000000",
+  "prefix": "mm_token",
   "createdAt": "2026-05-14"
 }
 ```
@@ -39,9 +39,9 @@ When `--json` is specified, the CLI must:
 ```json
 {
   "authenticated": true,
-  "userName": "Joe Jarlett",
-  "userEmail": "joe.jarlett@gmail.com",
-  "prefix": "mm_9b2e8",
+  "userName": "Jane Doe",
+  "userEmail": "jane.doe@example.com",
+  "prefix": "mm_token",
   "apps": [
     {"slug": "kb", "name": "Knowledge Base", "description": "search, read, manage documents"},
     {"slug": "crm", "name": "CRM", "description": "contacts, projects, interactions"}

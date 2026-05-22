@@ -128,9 +128,9 @@ So the header is informational. The Go port should still send it (matches server
 `mm whoami` reads `auth.json` and prints:
 
 ```
-User:  Joe Jarlett (joe.jarlett@gmail.com)
-ID:    019d7321-7b00-7b5b-874b-2b61a37c5585
-Token: mm_9b2e8... (created 2026-05-14)
+User:  Jane Doe (jane.doe@example.com)
+ID:    00000000-0000-0000-0000-000000000000
+Token: mm_token... (created 2026-05-14)
 ```
 
 `prefix` from the saved AuthState — first 8 chars of the token, never the full thing. The Go port should match this output format byte-for-byte.
