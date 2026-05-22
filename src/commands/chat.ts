@@ -1,29 +1,20 @@
 /**
  * mm chat — local agent threads.
  *
- * Reads `~/.mm/meta-me-local-agent.db` via bun:sqlite. The agent owns
- * writes; this is a read-only window into the conversation history so
- * you can list / show / search from any terminal.
+ * Pure HTTP/WS wrapper over the meta-me-local-agent. No direct DB access:
+ * local commands hit http://localhost:3142, --node <name> hits the tailnet
+ * URL of the named instance from the hub. Same code path either way.
  */
 
-import { Database } from 'bun:sqlite';
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { hubApi } from '../hub';
 import { getTailscaleSuffix } from '../tailscale';
+import type {
+	HubInstance,
+	HubInstanceListResp,
+	AgentModelsListResp,
+} from '../wire';
 
-const DB_PATH = join(homedir(), '.mm', 'meta-me-local-agent.db');
 const AGENT_BASE = process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142';
-
-function open(): Database {
-	if (!existsSync(DB_PATH)) {
-		process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
-		process.stderr.write('Is the local agent installed? See https://meta-me.uk/cli\n');
-		process.exit(1);
-	}
-	return new Database(DB_PATH, { readonly: true });
-}
 
 function fmtTime(ms: number): string {
 	const d = new Date(ms);
@@ -51,16 +42,16 @@ export function printChatHelp() {
 	console.log(`mm chat — local agent threads
 
 Subcommands:
-  list [--node <name>] [--limit N] [--project <id>]
+  list [--node <name>] [--limit N] [--project <id|label>]
                        Recent threads, newest first (default limit 20)
   show <id> [--node <name>] [--limit N]
-                       Print messages in a thread (default limit 50). With
-                       --node, requires a full UUID (no prefix resolution).
+                       Print messages in a thread (default limit 50).
+                       A 6-char prefix is enough.
   search <query> [--node <name>] [--limit N]
                        Substring match across message bodies (case-insensitive)
   projects [--node <name>]
                        List known projects + thread counts
-  send "<message>" [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id>]
+  send "<message>" [--new] [--title <t>] [--model <id>] [--thread <id>] [--project <id|label>]
                        Drive a turn on the local agent. Streams assistant
                        output to stdout. Without --new or --thread, continues
                        the most recently updated thread.
@@ -69,8 +60,8 @@ Subcommands:
                        List models the agent has provider keys for
   help                 Show this help
 
-Reads ${DB_PATH} (read-only) for list/show/search/projects.
-\`send\` talks to the agent at ${AGENT_BASE} (override with MM_LOCAL_AGENT_URL).
+Talks to ${AGENT_BASE} by default (override with MM_LOCAL_AGENT_URL).
+With --node <name>, talks to the named tailnet instance from the hub.
 Add --json for parseable output.
 
 Tips:
@@ -80,46 +71,67 @@ Tips:
     there to pick up where it left off.`);
 }
 
-function resolveThreadId(db: Database, prefix: string): string | null {
-	const exact = db.query<{ id: string }, [string]>('SELECT id FROM thread WHERE id = ?').get(prefix);
-	if (exact) return exact.id;
-	const matches = db
-		.query<{ id: string }, [string]>('SELECT id FROM thread WHERE id LIKE ? LIMIT 2')
-		.all(`${prefix}%`);
-	if (matches.length === 1) return matches[0].id;
-	if (matches.length > 1) {
-		process.stderr.write(`Error: thread prefix "${prefix}" is ambiguous\n`);
-		process.exit(1);
-	}
-	return null;
-}
-
 const UUID_RE_CLI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Resolve --project for the local SQLite path. Mirrors the agent's
- * resolveProjectInput so `mm chat list --project joe-inc` works
- * identically with and without --node.
- */
-function resolveLocalProject(db: Database, input: string): string | null {
-	if (UUID_RE_CLI.test(input)) {
-		const row = db.query<{ id: string }, [string]>('SELECT id FROM project WHERE id = ?').get(input);
-		if (row) return row.id;
-	}
-	const matches = db
-		.query<{ id: string }, [string]>('SELECT id FROM project WHERE LOWER(label) = LOWER(?)')
-		.all(input);
-	if (matches.length === 1) return matches[0].id;
-	if (matches.length > 1) {
-		process.stderr.write(`Error: project label '${input}' is ambiguous (${matches.length} matches)\n`);
-		process.exit(1);
-	}
-	return null;
-}
 
 function getFlag(args: string[], name: string): string | undefined {
 	const i = args.indexOf(name);
 	return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+
+/**
+ * HTTP base URL for the targeted agent. No node = local agent. With node =
+ * resolve via the hub + local tailscaled MagicDNS suffix.
+ */
+async function agentBase(node: string | undefined): Promise<{ http: string; ws: string; displayName: string }> {
+	if (!node) {
+		return {
+			http: AGENT_BASE,
+			ws: AGENT_BASE.replace(/^http/, 'ws'),
+			displayName: 'local',
+		};
+	}
+	const resolved = await resolveNode(node);
+	return {
+		http: resolved.baseUrl,
+		ws: resolved.baseUrl.replace(/^https/, 'wss').replace(/^http/, 'ws'),
+		displayName: resolved.displayName,
+	};
+}
+
+async function agentFetch(node: string | undefined, path: string, init?: RequestInit): Promise<Response> {
+	const { http, displayName } = await agentBase(node);
+	const url = `${http}${path}`;
+	try {
+		return await fetch(url, init);
+	} catch (err) {
+		throw new Error(`fetch ${url} failed (${displayName}): ${err}`);
+	}
+}
+
+/**
+ * Resolve a thread-id prefix against the agent. With a full UUID, no lookup —
+ * the agent will 404 on its own if it doesn't exist. With a shorter prefix,
+ * fetch a page of threads and match client-side.
+ */
+async function resolveThreadId(node: string | undefined, prefix: string): Promise<string | null> {
+	if (UUID_RE_CLI.test(prefix)) return prefix;
+	if (prefix.length < 4) {
+		process.stderr.write(`Error: thread prefix '${prefix}' is too short (need ≥4 chars)\n`);
+		process.exit(1);
+	}
+	const resp = await agentFetch(node, `/api/threads?limit=1000`);
+	if (!resp.ok) {
+		process.stderr.write(`Error: GET /api/threads ${resp.status}\n`);
+		process.exit(1);
+	}
+	const data = (await resp.json()) as { threads: { id: string }[] };
+	const matches = (data.threads ?? []).filter((t) => t.id.startsWith(prefix.toLowerCase()));
+	if (matches.length === 0) return null;
+	if (matches.length > 1) {
+		process.stderr.write(`Error: thread prefix '${prefix}' is ambiguous (${matches.length} matches)\n`);
+		process.exit(1);
+	}
+	return matches[0].id;
 }
 
 async function listThreads(args: string[], json: boolean) {
@@ -128,46 +140,19 @@ async function listThreads(args: string[], json: boolean) {
 	const projectId = getFlag(args, '--project');
 	const node = getFlag(args, '--node');
 
-	let rows: any[];
-	if (node) {
-		const qs = new URLSearchParams({ limit: String(limit) });
-		if (projectId) qs.set('project_id', projectId);
-		const resp = await nodeFetch(node, `/api/threads?${qs}`);
-		if (!resp.ok) {
-			process.stderr.write(`Error: GET /api/threads ${resp.status}\n`);
-			process.exit(1);
-		}
-		rows = ((await resp.json()) as { threads: any[] }).threads ?? [];
-	} else {
-		const db = open();
-		let resolvedProjectId: string | null = null;
-		if (projectId) {
-			resolvedProjectId = resolveLocalProject(db, projectId);
-			if (!resolvedProjectId) {
-				db.close();
-				process.stderr.write(
-					`Error: project '${projectId}' not found locally. Try \`mm chat projects\` for the list.\n`,
-				);
-				process.exit(1);
-			}
-		}
-		rows = resolvedProjectId
-			? db
-					.query<any, [string, number]>(
-						`SELECT id, title, project_id, model_id, updated_at,
-						        (SELECT COUNT(*) FROM message WHERE thread_id = thread.id) AS msg_count
-						   FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT ?`,
-					)
-					.all(resolvedProjectId, limit)
-			: db
-					.query<any, [number]>(
-						`SELECT id, title, project_id, model_id, updated_at,
-						        (SELECT COUNT(*) FROM message WHERE thread_id = thread.id) AS msg_count
-						   FROM thread ORDER BY updated_at DESC LIMIT ?`,
-					)
-					.all(limit);
-		db.close();
+	const qs = new URLSearchParams({ limit: String(limit) });
+	if (projectId) qs.set('project_id', projectId);
+	const resp = await agentFetch(node, `/api/threads?${qs}`);
+	if (resp.status === 404 && projectId) {
+		const body = await resp.text();
+		process.stderr.write(`Error: project '${projectId}' not found. ${body}\n`);
+		process.exit(1);
 	}
+	if (!resp.ok) {
+		process.stderr.write(`Error: GET /api/threads ${resp.status}\n`);
+		process.exit(1);
+	}
+	const rows = ((await resp.json()) as { threads: any[] }).threads ?? [];
 
 	if (json) {
 		process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
@@ -195,51 +180,31 @@ async function showThread(args: string[], json: boolean) {
 	const node = getFlag(args, '--node');
 	const limit = parseInt(getFlag(args, '--limit') || '50', 10);
 
-	let thread: any;
-	let messages: any[];
-
-	if (node) {
-		// Without local SQLite there's no prefix resolution — require full id.
-		if (idArg.length < 36) {
-			process.stderr.write(
-				`Error: --node requires a full thread id (36 chars), got '${idArg}'. Use \`mm chat list --node ${node}\` to find one.\n`,
-			);
-			process.exit(1);
-		}
-		const threadsResp = await nodeFetch(node, `/api/threads?limit=1000`);
-		if (!threadsResp.ok) {
-			process.stderr.write(`Error: GET /api/threads ${threadsResp.status}\n`);
-			process.exit(1);
-		}
-		const threadsData = (await threadsResp.json()) as { threads: any[] };
-		thread = (threadsData.threads ?? []).find((t) => t.id === idArg);
-		if (!thread) {
-			process.stderr.write(`Error: thread not found on node '${node}': ${idArg}\n`);
-			process.exit(1);
-		}
-		const msgsResp = await nodeFetch(node, `/api/threads/${idArg}/messages`);
-		if (!msgsResp.ok) {
-			process.stderr.write(`Error: GET /api/threads/:id/messages ${msgsResp.status}\n`);
-			process.exit(1);
-		}
-		const msgsData = (await msgsResp.json()) as { messages: any[] };
-		messages = (msgsData.messages ?? []).slice(0, limit);
-	} else {
-		const db = open();
-		const id = resolveThreadId(db, idArg);
-		if (!id) {
-			db.close();
-			process.stderr.write(`Error: thread not found: ${idArg}\n`);
-			process.exit(1);
-		}
-		thread = db.query<any, [string]>('SELECT * FROM thread WHERE id = ?').get(id);
-		messages = db
-			.query<any, [string, number]>(
-				'SELECT id, role, content, created_at FROM message WHERE thread_id = ? ORDER BY created_at ASC LIMIT ?',
-			)
-			.all(id, limit);
-		db.close();
+	const id = await resolveThreadId(node, idArg);
+	if (!id) {
+		process.stderr.write(`Error: thread not found: ${idArg}\n`);
+		process.exit(1);
 	}
+
+	const threadsResp = await agentFetch(node, `/api/threads?limit=1000`);
+	if (!threadsResp.ok) {
+		process.stderr.write(`Error: GET /api/threads ${threadsResp.status}\n`);
+		process.exit(1);
+	}
+	const threadsData = (await threadsResp.json()) as { threads: any[] };
+	const thread = (threadsData.threads ?? []).find((t) => t.id === id);
+	if (!thread) {
+		process.stderr.write(`Error: thread not found: ${id}\n`);
+		process.exit(1);
+	}
+
+	const msgsResp = await agentFetch(node, `/api/threads/${id}/messages`);
+	if (!msgsResp.ok) {
+		process.stderr.write(`Error: GET /api/threads/:id/messages ${msgsResp.status}\n`);
+		process.exit(1);
+	}
+	const msgsData = (await msgsResp.json()) as { messages: any[] };
+	const messages = (msgsData.messages ?? []).slice(0, limit);
 
 	if (json) {
 		process.stdout.write(JSON.stringify({ thread, messages }, null, 2) + '\n');
@@ -271,33 +236,19 @@ async function searchMessages(args: string[], json: boolean) {
 	const limit = parseInt(getFlag(args, '--limit') || '20', 10);
 	const node = getFlag(args, '--node');
 
-	let rows: any[];
-	if (node) {
-		const qs = new URLSearchParams({ q: query, limit: String(limit) });
-		const resp = await nodeFetch(node, `/api/messages/search?${qs}`);
-		if (resp.status === 404) {
-			process.stderr.write(
-				`Error: node '${node}' doesn't have /api/messages/search yet — it needs to be redeployed with the current meta-me-local-agent build.\n`,
-			);
-			process.exit(1);
-		}
-		if (!resp.ok) {
-			process.stderr.write(`Error: GET /api/messages/search ${resp.status}\n`);
-			process.exit(1);
-		}
-		rows = ((await resp.json()) as { matches: any[] }).matches ?? [];
-	} else {
-		const db = open();
-		rows = db
-			.query<any, [string, number]>(
-				`SELECT m.id, m.thread_id, m.role, m.content, m.created_at, t.title
-				   FROM message m JOIN thread t ON t.id = m.thread_id
-				  WHERE LOWER(m.content) LIKE LOWER(?)
-				  ORDER BY m.created_at DESC LIMIT ?`,
-			)
-			.all(`%${query}%`, limit);
-		db.close();
+	const qs = new URLSearchParams({ q: query, limit: String(limit) });
+	const resp = await agentFetch(node, `/api/messages/search?${qs}`);
+	if (resp.status === 404) {
+		process.stderr.write(
+			`Error: agent doesn't have /api/messages/search yet — it needs to be redeployed with the current meta-me-local-agent build.\n`,
+		);
+		process.exit(1);
 	}
+	if (!resp.ok) {
+		process.stderr.write(`Error: GET /api/messages/search ${resp.status}\n`);
+		process.exit(1);
+	}
+	const rows = ((await resp.json()) as { matches: any[] }).matches ?? [];
 
 	if (json) {
 		process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
@@ -317,25 +268,12 @@ async function searchMessages(args: string[], json: boolean) {
 async function listProjects(args: string[], json: boolean) {
 	args = await consumeMentionsFromArgs(args);
 	const node = getFlag(args, '--node');
-	let rows: any[];
-	if (node) {
-		const resp = await nodeFetch(node, `/api/projects`);
-		if (!resp.ok) {
-			process.stderr.write(`Error: GET /api/projects ${resp.status}\n`);
-			process.exit(1);
-		}
-		rows = ((await resp.json()) as { projects: any[] }).projects ?? [];
-	} else {
-		const db = open();
-		rows = db
-			.query<any, []>(
-				`SELECT p.id, p.label, p.root_path, p.last_opened_at,
-				        (SELECT COUNT(*) FROM thread WHERE project_id = p.id) AS thread_count
-				   FROM project p ORDER BY p.last_opened_at DESC`,
-			)
-			.all();
-		db.close();
+	const resp = await agentFetch(node, `/api/projects`);
+	if (!resp.ok) {
+		process.stderr.write(`Error: GET /api/projects ${resp.status}\n`);
+		process.exit(1);
 	}
+	const rows = ((await resp.json()) as { projects: any[] }).projects ?? [];
 	if (json) {
 		process.stdout.write(JSON.stringify(rows, null, 2) + '\n');
 		return;
@@ -389,27 +327,13 @@ async function lookupNodeName(name: string): Promise<boolean> {
 }
 
 async function lookupProjectName(name: string, targetNode: string | undefined): Promise<boolean> {
-	if (targetNode) {
-		try {
-			const resp = await nodeFetch(targetNode, '/api/projects');
-			if (!resp.ok) return false;
-			const data = (await resp.json()) as { projects: { label: string }[] };
-			return (data.projects ?? []).some((p) => p.label.toLowerCase() === name.toLowerCase());
-		} catch {
-			return false;
-		}
-	}
-	if (!existsSync(DB_PATH)) return false;
-	const db = new Database(DB_PATH, { readonly: true });
 	try {
-		const row = db
-			.query<{ c: number }, [string]>(
-				'SELECT COUNT(*) AS c FROM project WHERE LOWER(label) = LOWER(?)',
-			)
-			.get(name);
-		return (row?.c ?? 0) > 0;
-	} finally {
-		db.close();
+		const resp = await agentFetch(targetNode, '/api/projects');
+		if (!resp.ok) return false;
+		const data = (await resp.json()) as { projects: { label: string }[] };
+		return (data.projects ?? []).some((p) => p.label.toLowerCase() === name.toLowerCase());
+	} catch {
+		return false;
 	}
 }
 
@@ -596,19 +520,11 @@ async function consumeMentionsFromArgs(args: string[]): Promise<string[]> {
 	return newArgs;
 }
 
-type InstanceListItem = {
-	id: string;
-	appSlug: string;
-	name: string;
-	url: string | null;
-	isOwner: boolean;
-};
+let nodesCache: HubInstance[] | null = null;
 
-let nodesCache: InstanceListItem[] | null = null;
-
-async function loadNodes(): Promise<InstanceListItem[]> {
+async function loadNodes(): Promise<HubInstance[]> {
 	if (nodesCache) return nodesCache;
-	const data = await hubApi<{ instances: InstanceListItem[] }>('instance', 'list', {
+	const data = await hubApi<HubInstanceListResp>('instance', 'list', {
 		slugs: ['chat', 'agent'],
 	});
 	nodesCache = data.instances ?? [];
@@ -646,22 +562,12 @@ async function resolveNode(name: string): Promise<{ baseUrl: string; displayName
 	};
 }
 
-async function nodeFetch(node: string, path: string): Promise<Response> {
-	const { baseUrl, displayName } = await resolveNode(node);
-	const url = `${baseUrl}${path}`;
-	try {
-		return await fetch(url);
-	} catch (err) {
-		throw new Error(`fetch ${url} failed (node '${displayName}'): ${err}`);
-	}
-}
-
 async function listNodes(json: boolean) {
 	try {
 		// Cover both the current `chat` slug (deployed reality — m4, fedora,
 		// dees-imac all filed under 'chat') and the prospective `agent` slug
 		// from the rename discussion. Whichever the hub has, we surface.
-		const data = await hubApi<{ instances: InstanceListItem[] }>('instance', 'list', {
+		const data = await hubApi<HubInstanceListResp>('instance', 'list', {
 			slugs: ['chat', 'agent'],
 		});
 		const rows = data.instances ?? [];
@@ -685,24 +591,15 @@ async function listNodes(json: boolean) {
 	}
 }
 
-type AgentModel = {
-	provider: string;
-	id: string;
-	label: string;
-	input: string[];
-};
-
 async function listModels(args: string[], json: boolean) {
 	const nodeFlag = getFlag(args, '--node');
 	try {
-		const resp = nodeFlag
-			? await nodeFetch(nodeFlag, '/api/models')
-			: await fetch(`${AGENT_BASE}/api/models`);
+		const resp = await agentFetch(nodeFlag, '/api/models');
 		if (!resp.ok) {
 			process.stderr.write(`Error: GET /api/models ${resp.status}\n`);
 			process.exit(1);
 		}
-		const data = (await resp.json()) as { models: AgentModel[] };
+		const data = (await resp.json()) as AgentModelsListResp;
 		const models = data.models ?? [];
 		if (json) {
 			process.stdout.write(JSON.stringify(models, null, 2) + '\n');
@@ -718,7 +615,7 @@ async function listModels(args: string[], json: boolean) {
 			console.log(`${m.label.padEnd(6)} ${fullId.padEnd(40)} [${inputs}]`);
 		}
 	} catch (err) {
-		process.stderr.write(`Error: agent unreachable at ${AGENT_BASE} (${err})\n`);
+		process.stderr.write(`Error: agent unreachable (${err})\n`);
 		process.exit(1);
 	}
 }
@@ -756,17 +653,7 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 	const nodeFlag = parsed.node;
 	const projectFlag = parsed.project;
 
-	// Resolve target base URL (HTTP) + WS URL for the dial.
-	let httpBase: string;
-	let wsBase: string;
-	if (nodeFlag) {
-		const resolved = await resolveNode(nodeFlag);
-		httpBase = resolved.baseUrl;
-		wsBase = resolved.baseUrl.replace(/^https/, 'wss').replace(/^http/, 'ws');
-	} else {
-		httpBase = AGENT_BASE;
-		wsBase = AGENT_BASE.replace(/^http/, 'ws');
-	}
+	const { http: httpBase, ws: wsBase } = await agentBase(nodeFlag);
 
 	if (isNew && threadFlag) {
 		process.stderr.write('Error: --new and --thread are mutually exclusive\n');
@@ -789,35 +676,18 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 
 	let threadId: string;
 	if (threadFlag) {
-		if (nodeFlag) {
-			// No SQLite prefix resolution on a remote node — require full UUID.
-			if (threadFlag.length < 36) {
-				process.stderr.write(
-					`Error: --thread under --node requires a full UUID (36 chars), got '${threadFlag}'.\n`,
-				);
-				process.exit(1);
-			}
-			threadId = threadFlag;
-		} else {
-			if (!existsSync(DB_PATH)) {
-				process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
-				process.exit(1);
-			}
-			const db = new Database(DB_PATH, { readonly: true });
-			const resolved = resolveThreadId(db, threadFlag);
-			db.close();
-			if (!resolved) {
-				process.stderr.write(`Error: thread not found: ${threadFlag}\n`);
-				process.exit(1);
-			}
-			threadId = resolved;
+		const resolved = await resolveThreadId(nodeFlag, threadFlag);
+		if (!resolved) {
+			process.stderr.write(`Error: thread not found: ${threadFlag}\n`);
+			process.exit(1);
 		}
+		threadId = resolved;
 	} else if (isNew) {
 		const body: Record<string, string> = {};
 		if (titleFlag) body.title = titleFlag;
 		if (projectFlag) body.project_id = projectFlag;
 		try {
-			const resp = await fetch(`${httpBase}/api/threads`, {
+			const resp = await agentFetch(nodeFlag, `/api/threads`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(body),
@@ -835,60 +705,26 @@ async function sendMessage(args: string[], flags: { json?: boolean }) {
 		}
 	} else {
 		// Continue most recently updated thread, scoped to project if given.
-		if (nodeFlag) {
-			const qs = new URLSearchParams({ limit: '1' });
-			if (projectFlag) qs.set('project_id', projectFlag);
-			const resp = await fetch(`${httpBase}/api/threads?${qs}`);
-			if (!resp.ok) {
-				process.stderr.write(`Error: GET /api/threads on '${nodeFlag}' ${resp.status}\n`);
-				process.exit(1);
-			}
-			const data = (await resp.json()) as { threads: { id: string }[] };
-			const row = data.threads?.[0];
-			if (!row) {
-				process.stderr.write(
-					`Error: no thread to continue on node '${nodeFlag}'. Pass --new to create one.\n`,
-				);
-				process.exit(1);
-			}
-			threadId = row.id;
-		} else {
-			if (!existsSync(DB_PATH)) {
-				process.stderr.write(`Error: agent DB not found at ${DB_PATH}\n`);
-				process.exit(1);
-			}
-			const db = new Database(DB_PATH, { readonly: true });
-			let resolvedProjectId: string | null = null;
-			if (projectFlag) {
-				resolvedProjectId = resolveLocalProject(db, projectFlag);
-				if (!resolvedProjectId) {
-					db.close();
-					process.stderr.write(
-						`Error: project '${projectFlag}' not found locally. Try \`mm chat projects\`.\n`,
-					);
-					process.exit(1);
-				}
-			}
-			const row = resolvedProjectId
-				? db
-						.query<{ id: string }, [string]>(
-							'SELECT id FROM thread WHERE project_id = ? ORDER BY updated_at DESC LIMIT 1',
-						)
-						.get(resolvedProjectId)
-				: db
-						.query<{ id: string }, []>(
-							'SELECT id FROM thread ORDER BY updated_at DESC LIMIT 1',
-						)
-						.get();
-			db.close();
-			if (!row) {
-				process.stderr.write(
-					'Error: no existing thread to continue. Pass --new to create one.\n',
-				);
-				process.exit(1);
-			}
-			threadId = row.id;
+		const qs = new URLSearchParams({ limit: '1' });
+		if (projectFlag) qs.set('project_id', projectFlag);
+		const resp = await agentFetch(nodeFlag, `/api/threads?${qs}`);
+		if (resp.status === 404 && projectFlag) {
+			process.stderr.write(`Error: project '${projectFlag}' not found.\n`);
+			process.exit(1);
 		}
+		if (!resp.ok) {
+			process.stderr.write(`Error: GET /api/threads ${resp.status}\n`);
+			process.exit(1);
+		}
+		const data = (await resp.json()) as { threads: { id: string }[] };
+		const row = data.threads?.[0];
+		if (!row) {
+			process.stderr.write(
+				'Error: no existing thread to continue. Pass --new to create one.\n',
+			);
+			process.exit(1);
+		}
+		threadId = row.id;
 	}
 
 	const wsUrl = `${wsBase}/ws`;
