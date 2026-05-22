@@ -291,6 +291,104 @@ type HubFeedbackSubmitResp struct {
 	ID string `json:"id"`
 }
 
+type HubCaptureCreateReq struct {
+	Text   string `json:"text"`
+	Source string `json:"source,omitempty"`
+}
+
+type HubCaptureCreateResp struct {
+	ID        string `json:"id"`
+	Status    string `json:"status"`
+	CreatedAt string `json:"createdAt"`
+}
+
+type HubCaptureListReq struct {
+	Limit int `json:"limit,omitempty"`
+}
+
+type HubCaptureProposal struct {
+	Target       HubCaptureClassifyTarget        `json:"target"`
+	Payload      map[string]any               `json:"payload"`
+	Confidence   float64                      `json:"confidence"`
+	Rationale    string                       `json:"rationale"`
+	Alternatives []HubCaptureClassifyAlternative `json:"alternatives"`
+	Model        string                       `json:"model"`
+	ClassifiedAt string                       `json:"classifiedAt"`
+}
+
+type HubCaptureListItem struct {
+	ID        string           `json:"id"`
+	Text      string           `json:"text"`
+	Source    string           `json:"source"`
+	Status    string           `json:"status"`
+	CreatedAt string           `json:"createdAt"`
+	Proposal  *HubCaptureProposal `json:"proposal,omitempty"`
+}
+
+type HubCaptureListResp struct {
+	Items []HubCaptureListItem `json:"items"`
+}
+
+type HubCaptureClassifyReq struct {
+	CaptureID string `json:"captureId"`
+	Retry     bool   `json:"retry,omitempty"`
+	Hint      string `json:"hint,omitempty"`
+}
+
+type HubCaptureClassifyTarget struct {
+	Feature string `json:"feature"`
+	Action  string `json:"action"`
+}
+
+type HubCaptureClassifyAlternative struct {
+	Feature    string  `json:"feature"`
+	Action     string  `json:"action"`
+	Confidence float64 `json:"confidence"`
+	Rationale  string  `json:"rationale"`
+}
+
+type HubCaptureClassifyResp struct {
+	CaptureID    string                       `json:"captureId"`
+	Text         string                       `json:"text"`
+	Target       HubCaptureClassifyTarget        `json:"target"`
+	Payload      map[string]any               `json:"payload"`
+	Confidence   float64                      `json:"confidence"`
+	Rationale    string                       `json:"rationale"`
+	Alternatives []HubCaptureClassifyAlternative `json:"alternatives"`
+	Model        string                       `json:"model"`
+	LatencyMs    int                          `json:"latencyMs"`
+}
+
+type HubCaptureApproveReq struct {
+	CaptureID       string         `json:"captureId"`
+	Override        bool           `json:"override,omitempty"`
+	PayloadOverride map[string]any `json:"payloadOverride,omitempty"`
+}
+
+type HubCaptureApproveOutcome struct {
+	Kind    string `json:"kind"`
+	Data    any    `json:"data,omitempty"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+	Target  string `json:"target,omitempty"`
+}
+
+type HubCaptureApproveResp struct {
+	CaptureID string                `json:"captureId"`
+	Status    string                `json:"status"`
+	Target    HubCaptureClassifyTarget `json:"target"`
+	Outcome   HubCaptureApproveOutcome `json:"outcome"`
+}
+
+type HubCaptureDiscardReq struct {
+	CaptureID string `json:"captureId"`
+}
+
+type HubCaptureDiscardResp struct {
+	CaptureID string `json:"captureId"`
+	Status    string `json:"status"`
+}
+
 // ─── Envelope ──────────────────────────────────────────────────────────
 
 // HubEnvelope is the top-level response shape for /api/mm and /api/v2.

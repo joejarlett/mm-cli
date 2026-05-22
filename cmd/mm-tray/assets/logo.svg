@@ -1,0 +1,26 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+	<defs>
+		<linearGradient id="mm-grad" gradientUnits="userSpaceOnUse" x1="16" y1="128" x2="240" y2="128">
+			<stop offset="0" stop-color="#2563eb" />
+			<stop offset="0.2" stop-color="#0ea5e9" />
+			<stop offset="0.4" stop-color="#06b6d4" />
+			<stop offset="0.6" stop-color="#14b8a6" />
+			<stop offset="0.8" stop-color="#2dd4bf" />
+			<stop offset="1" stop-color="#99f6e4" />
+		</linearGradient>
+	</defs>
+	<rect width="256" height="256" rx="48" fill="#000000" />
+	<g fill="none" stroke-linejoin="round" stroke-linecap="round">
+		<path
+			d="M 190 200 L 66 200 Q 26 200 43.28 163.93 L 77.72 92.07 Q 95 56 115.51 90.34 L 160.49 165.66 Q 181 200 141 200 L 115 200 Q 75 200 95.51 165.66 L 140.49 90.34 Q 161 56 178.28 92.07 L 212.72 163.93 Q 230 200 190 200 Z"
+			stroke="url(#mm-grad)"
+			stroke-width="28"
+		/>
+		<path d="M 163.98 172.18 Q 177 200 141 200 L 115 200 Q 75 200 95.51 165.66 L 138.44 93.78" stroke="#000000" stroke-width="40" />
+		<path
+			d="M 158.22 161.87 L 160.49 165.66 Q 181 200 141 200 L 115 200 Q 75 200 95.51 165.66 L 140.49 90.34 Q 142.54 86.91 144.56 84.18"
+			stroke="url(#mm-grad)"
+			stroke-width="28"
+		/>
+	</g>
+</svg>
