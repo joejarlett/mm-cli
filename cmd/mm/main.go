@@ -75,5 +75,9 @@ func newRootCmd() *cobra.Command {
 	}
 	root.AddCommand(admin.NewAdminCmd())
 
+	// Phase 5 subcommands.
+	root.AddCommand(cmd.NewUpdateCmd())
+	root.AddCommand(cmd.NewVersionCmd())
+
 	return root
 }
