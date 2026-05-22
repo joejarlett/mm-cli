@@ -14,40 +14,13 @@
  */
 
 import postgres from 'postgres';
-import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-
-let booted = false;
-
-// Best-effort env merge from ~/.mm/.env so the CLI works when invoked
-// from a shell that hasn't sourced it. No override — explicit env wins.
-function maybeLoadUserEnv() {
-	if (booted) return;
-	booted = true;
-	const path = join(homedir(), '.mm', '.env');
-	if (!existsSync(path)) return;
-	for (const line of readFileSync(path, 'utf-8').split('\n')) {
-		const trimmed = line.trim();
-		if (!trimmed || trimmed.startsWith('#')) continue;
-		const eq = trimmed.indexOf('=');
-		if (eq < 0) continue;
-		const key = trimmed.slice(0, eq).replace(/^export\s+/, '').trim();
-		let value = trimmed.slice(eq + 1).trim();
-		if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-			value = value.slice(1, -1);
-		}
-		if (!key || key in process.env) continue;
-		process.env[key] = value;
-	}
-}
+import { loadConfig } from './config';
 
 let _sql: ReturnType<typeof postgres> | null = null;
 
 export function db() {
 	if (_sql) return _sql;
-	maybeLoadUserEnv();
-	const url = process.env.MM_DATABASE_URL || process.env.DATABASE_URL;
+	const url = loadConfig().databaseUrl;
 	if (!url) {
 		process.stderr.write('Error: MM_DATABASE_URL or DATABASE_URL not set (env or ~/.mm/.env)\n');
 		process.exit(1);

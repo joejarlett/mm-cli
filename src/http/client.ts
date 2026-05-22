@@ -39,9 +39,9 @@ import { loadAuth } from '../auth';
 import { resolveApp } from '../apps';
 import { loadManifest, resolveAction, type AppManifest } from '../manifest';
 import { getTailscaleSuffix } from '../tailscale';
+import { loadConfig } from '../config';
 
-const HUB_URL = process.env.MM_HUB_URL ?? 'https://meta-me.uk';
-const AGENT_BASE = process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142';
+const { hubUrl: HUB_URL, localAgentUrl: AGENT_BASE } = loadConfig();
 
 // ─── Hub mm-RPC ────────────────────────────────────────────────────────
 

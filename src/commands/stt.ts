@@ -13,8 +13,9 @@
 
 import { readFile } from 'node:fs/promises';
 import { loadAuth } from '../auth';
+import { loadConfig } from '../config';
 
-const HUB_URL = process.env.MM_HUB_URL || 'https://meta-me.uk';
+const { hubUrl: HUB_URL } = loadConfig();
 
 export function printSttHelp() {
 	console.log(`mm stt — Speech-to-text via the hub's whisper service

@@ -19,8 +19,9 @@ import { writeFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadAuth } from '../auth';
+import { loadConfig } from '../config';
 
-const HUB_URL = process.env.MM_HUB_URL || 'https://meta-me.uk';
+const { hubUrl: HUB_URL } = loadConfig();
 const TTS_SAMPLE_RATE = 24000;
 
 type TtsFlags = {

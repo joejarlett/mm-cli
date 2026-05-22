@@ -3,9 +3,9 @@
  */
 
 import { loadAuth } from './auth';
+import { loadConfig } from './config';
 
-const AUTH_URL = 'https://auth.meta-me.uk';
-const HUB_URL = 'https://meta-me.uk';
+const { authUrl: AUTH_URL, hubUrl: HUB_URL } = loadConfig();
 
 interface ApiResponse {
 	ok: boolean;

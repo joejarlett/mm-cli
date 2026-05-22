@@ -7,9 +7,10 @@
  */
 
 import { hub as hubApi, agentBase, agentFetch, loadNodes } from '../http/client';
+import { loadConfig } from '../config';
 import type { HubInstanceListResp, AgentModelsListResp } from '../wire';
 
-const AGENT_BASE = process.env.MM_LOCAL_AGENT_URL ?? 'http://localhost:3142';
+const { localAgentUrl: AGENT_BASE } = loadConfig();
 
 function fmtTime(ms: number): string {
 	const d = new Date(ms);
