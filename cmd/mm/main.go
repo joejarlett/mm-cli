@@ -69,7 +69,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(cmd.NewTtsCmd())
 
 	// Phase 3 subcommands.
-	root.AddCommand(cmd.NewChatCmd())
+	root.AddCommand(cmd.NewDeskCmd())
 	root.AddCommand(cmd.NewProjectCmd())
 
 	// Phase 4 subcommands.

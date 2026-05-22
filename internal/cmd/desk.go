@@ -17,12 +17,13 @@ import (
 	"mm-cli/internal/wire"
 )
 
-// NewChatCmd builds the `mm chat` tree.
-func NewChatCmd() *cobra.Command {
+// NewDeskCmd builds the `mm desk` tree (`mm chat` kept as alias).
+func NewDeskCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "chat",
-		Short: "Local agent threads (list/show/search/send/nodes/models)",
-		RunE:  runChatList,
+		Use:     "desk",
+		Aliases: []string{"chat"},
+		Short:   "Local agent threads (list/show/search/send/nodes/models)",
+		RunE:    runChatList,
 	}
 	chatFlags(cmd, false)
 	cmd.AddCommand(
@@ -323,7 +324,7 @@ func runChatNodes(cmd *cobra.Command, _ []string) error {
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 	client := mmhttp.New()
 	var data wire.HubInstanceListResp
-	if err := client.Hub(cmd.Context(), "instance", "list", map[string]any{"slugs": []string{"chat", "agent"}}, &data); err != nil {
+	if err := client.Hub(cmd.Context(), "instance", "list", map[string]any{"slugs": []string{"chat", "agent", "desk"}}, &data); err != nil {
 		return err
 	}
 	if wantJSON {

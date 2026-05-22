@@ -28,7 +28,7 @@ The Go CLI supports native self-upgrades over secure connections:
 * **Apply the latest update**: `mm update`
 * **Install a specific version**: `mm update --version v0.1.0`
 
-The client automatically queries the Hub at `https://chat.meta-me.uk/dist/mm/latest` to resolve the version, downloads the correct platform binary (`mm-darwin-arm64`, `mm-darwin-amd64`, `mm-linux-arm64`, or `mm-linux-amd64`), verifies it against `SHA256SUMS`, and performs an atomic overwrite.
+The client automatically queries the Hub at `https://desk.meta-me.uk/dist/mm/latest` to resolve the version, downloads the correct platform binary (`mm-darwin-arm64`, `mm-darwin-amd64`, `mm-linux-arm64`, or `mm-linux-amd64`), verifies it against `SHA256SUMS`, and performs an atomic overwrite.
 
 
 ## What you can do

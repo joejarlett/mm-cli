@@ -1,8 +1,8 @@
 #!/bin/bash
-# scripts/install.sh — mm CLI installer for chat.meta-me.uk/install.
+# scripts/install.sh — mm CLI installer for desk.meta-me.uk/install.
 #
 # Usage:
-#   curl -fsSL https://chat.meta-me.uk/install | bash
+#   curl -fsSL https://desk.meta-me.uk/install | bash
 #
 # What it does:
 #   1. Detects OS + arch → mm-<platform> binary name.
@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-HUB_URL="${MM_HUB_URL:-https://chat.meta-me.uk}"
+HUB_URL="${MM_HUB_URL:-https://desk.meta-me.uk}"
 INSTALL_DIR="${MM_DIR:-$HOME/.mm}"
 BIN_DIR="$INSTALL_DIR/bin"
 AGENT_PATH_DIR="$INSTALL_DIR/pi-agent/bin"

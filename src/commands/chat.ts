@@ -63,7 +63,7 @@ Add --json for parseable output.
 Tips:
   • Thread IDs are UUIDs; a 6-char prefix is enough for \`show\` or \`send --thread\`.
   • \`mm chat list\` is the fastest way to find a thread to resume in
-    chat.meta-me.uk — the title and timestamp identify it; click it
+    desk.meta-me.uk — the title and timestamp identify it; click it
     there to pick up where it left off.`);
 }
 

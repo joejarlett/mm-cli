@@ -1,6 +1,6 @@
 #!/bin/bash
 # scripts/release.sh — cross-compile mm for darwin/linux × arm64/amd64,
-# compute checksums, sign macOS binaries, stage for chat.meta-me.uk deploy.
+# compute checksums, sign macOS binaries, stage for desk.meta-me.uk deploy.
 #
 # Usage: scripts/release.sh vX.Y.Z
 

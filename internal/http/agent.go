@@ -113,7 +113,7 @@ func (c *Client) LoadNodes(ctx context.Context) ([]wire.HubInstance, error) {
 	nodesCache.once.Do(func() {
 		var resp wire.HubInstanceListResp
 		if err := c.Hub(ctx, "instance", "list",
-			map[string]any{"slugs": []string{"chat", "agent"}}, &resp); err != nil {
+			map[string]any{"slugs": []string{"chat", "agent", "desk"}}, &resp); err != nil {
 			nodesCache.err = err
 			return
 		}
