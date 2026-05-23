@@ -389,6 +389,57 @@ type HubCaptureDiscardResp struct {
 	Status    string `json:"status"`
 }
 
+// ─── Audit / Hermes runs ────────────────────────────────────────────────
+
+type HubAuditListReq struct {
+	Limit int    `json:"limit,omitempty"`
+	Mode  string `json:"mode,omitempty"` // "run" for Hermes runs
+}
+
+type HubAuditRunSummary struct {
+	RunID             string   `json:"runId"`
+	RanAt             string   `json:"ranAt"`
+	Status            string   `json:"status"`
+	AppSlugs          []string `json:"appSlugs"`
+	TotalGapsFound    int      `json:"totalGapsFound"`
+	TotalGapsFixed    int      `json:"totalGapsFixed"`
+	TotalFilesChecked int      `json:"totalFilesChecked"`
+	Lookback          string   `json:"lookback"`
+	Mode              string   `json:"mode"`
+	Summary           string   `json:"summary"`
+}
+
+type HubAuditListResp struct {
+	Runs []HubAuditRunSummary `json:"runs"`
+}
+
+type HubAuditShowReq struct {
+	RunID string `json:"runId"`
+}
+
+type HubAuditRunDetail struct {
+	ID           string `json:"id"`
+	AppSlug      string `json:"appSlug"`
+	RanAt        string `json:"ranAt"`
+	Lookback     string `json:"lookback"`
+	Mode         string `json:"mode"`
+	FilesChecked int    `json:"filesChecked"`
+	GapsFound    int    `json:"gapsFound"`
+	GapsFixed    int    `json:"gapsFixed"`
+	HighCount    int    `json:"highCount"`
+	MediumCount  int    `json:"mediumCount"`
+	LowCount     int    `json:"lowCount"`
+	Report       string `json:"report"`
+	Status       string `json:"status"`
+}
+
+type HubAuditShowResp struct {
+	RunID  string              `json:"runId"`
+	RanAt  string              `json:"ranAt"`
+	Status string              `json:"status"`
+	Rows   []HubAuditRunDetail `json:"rows"`
+}
+
 // ─── Envelope ──────────────────────────────────────────────────────────
 
 // HubEnvelope is the top-level response shape for /api/mm and /api/v2.
