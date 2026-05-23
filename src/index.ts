@@ -28,6 +28,7 @@ import { appDispatch } from './commands/app';
 import { APPS } from './apps';
 import { chatDispatch } from './commands/chat';
 import { projectDispatch } from './commands/project';
+import { runDispatch, printRunHelp } from './commands/run';
 import {
 	sqlDispatch,
 	appsDispatch,
@@ -220,6 +221,10 @@ async function main() {
 			case 'project':
 			case 'projects':
 				await projectDispatch(positional[1] || '', positional.slice(2), flags);
+				break;
+			case 'run':
+				if (positional[1] === 'help' || flags.help) { printRunHelp(); break; }
+				await runDispatch(positional.slice(1), flags);
 				break;
 			case 'email':
 				await emailDispatch(positional[1] || '', positional.slice(2), flags);
