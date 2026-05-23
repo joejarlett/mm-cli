@@ -8,3 +8,4 @@ node_modules/
 # only on the dev machine; release binaries ship via dist-go/ + the hub.
 /mm
 
+.worktrees/

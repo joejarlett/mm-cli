@@ -52,6 +52,7 @@ Usage:
 
   mm kb <command> [args...]    Knowledge Base commands
   mm crm <command> [args...]   CRM commands
+  mm run \"<spec>\" [options]    Fire a Hermes agent run (list/show/list-runs for results)
   mm chat <command> [args...]  Local agent threads (list/show/search)
   mm project <command> [args...] Local agent project index (overview/detail/add)
   mm email <command> [args...] Platform email log (admin only)

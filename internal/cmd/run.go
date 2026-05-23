@@ -96,18 +96,24 @@ func runAuditList(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	fmt.Fprintf(cmd.OutOrStdout(), "%-6s  %-14s  %-24s  %s\n",
+		"WHEN", "RUN", "LOOKBACK", "SUMMARY")
 	for _, run := range resp.Runs {
-		ago := formatTimeAgo(run.RanAt)
-		app := strings.Join(run.AppSlugs, ",")
-		lookback := run.Lookback
-		if lookback == "" {
-			lookback = "-"
+		ago := formatTimeAgo(run.CreatedAt)
+		rid := run.RunID
+		if len(rid) > 14 {
+			rid = rid[:14]
 		}
-		summary := firstLine(run.Summary, 100)
-		appField := truncOr(app, 18)
-		branchField := truncOr(lookback, 24)
-		fmt.Fprintf(cmd.OutOrStdout(), "%-6s  %-18s  %-24s  %s\n",
-			ago, appField, branchField, summary)
+		lb := run.Lookback
+		if lb == "" {
+			lb = "-"
+		}
+		if len(lb) > 24 {
+			lb = lb[:24]
+		}
+		summary := firstLine(run.Report, 100)
+		fmt.Fprintf(cmd.OutOrStdout(), "%-6s  %-14s  %-24s  %s\n",
+			ago, rid, lb, summary)
 	}
 	return nil
 }
@@ -131,7 +137,7 @@ func runAuditShow(cmd *cobra.Command, args []string) error {
 	}
 
 	cmd.Printf("Run:    %s\n", resp.RunID)
-	cmd.Printf("When:   %s\n", formatTimeAgo(resp.RanAt))
+	cmd.Printf("When:   %s\n", formatTimeAgo(resp.CreatedAt))
 	cmd.Printf("Status: %s\n", nonempty(resp.Status))
 	cmd.Println()
 

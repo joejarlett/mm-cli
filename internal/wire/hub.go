@@ -398,7 +398,7 @@ type HubAuditListReq struct {
 
 type HubAuditRunSummary struct {
 	RunID             string   `json:"runId"`
-	RanAt             string   `json:"ranAt"`
+	CreatedAt         string   `json:"createdAt"`
 	Status            string   `json:"status"`
 	AppSlugs          []string `json:"appSlugs"`
 	TotalGapsFound    int      `json:"totalGapsFound"`
@@ -406,7 +406,7 @@ type HubAuditRunSummary struct {
 	TotalFilesChecked int      `json:"totalFilesChecked"`
 	Lookback          string   `json:"lookback"`
 	Mode              string   `json:"mode"`
-	Summary           string   `json:"summary"`
+	Report            string   `json:"report"`
 }
 
 type HubAuditListResp struct {
@@ -420,7 +420,7 @@ type HubAuditShowReq struct {
 type HubAuditRunDetail struct {
 	ID           string `json:"id"`
 	AppSlug      string `json:"appSlug"`
-	RanAt        string `json:"ranAt"`
+	CreatedAt    string `json:"createdAt"`
 	Lookback     string `json:"lookback"`
 	Mode         string `json:"mode"`
 	FilesChecked int    `json:"filesChecked"`
@@ -434,10 +434,10 @@ type HubAuditRunDetail struct {
 }
 
 type HubAuditShowResp struct {
-	RunID  string              `json:"runId"`
-	RanAt  string              `json:"ranAt"`
-	Status string              `json:"status"`
-	Rows   []HubAuditRunDetail `json:"rows"`
+	RunID     string              `json:"runId"`
+	CreatedAt string              `json:"createdAt"`
+	Status    string              `json:"status"`
+	Rows      []HubAuditRunDetail `json:"rows"`
 }
 
 // ─── Envelope ──────────────────────────────────────────────────────────
