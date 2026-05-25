@@ -193,9 +193,23 @@ export async function rpc<T = unknown>(
 		body: JSON.stringify({ feature, action, payload: payload ?? {} }),
 	});
 
+	const contentType = res.headers.get('content-type') ?? '';
 	if (!res.ok) {
+		if (!contentType.includes('application/json')) {
+			const text = await res.text();
+			const snippet = text.slice(0, 120).trim();
+			const hint = snippet.startsWith('<') ? ' — server returned HTML, likely a timeout or proxy error' : '';
+			throw new Error(`${appSlug} ${feature}.${action} failed (${res.status})${hint}`);
+		}
 		const text = await res.text();
 		throw new Error(`${appSlug} ${feature}.${action} failed (${res.status}): ${text.slice(0, 200)}`);
+	}
+
+	if (!contentType.includes('application/json')) {
+		const text = await res.text();
+		const snippet = text.slice(0, 120).trim();
+		const hint = snippet.startsWith('<') ? ' — server returned HTML, likely a timeout or proxy error' : '';
+		throw new Error(`${appSlug} ${feature}.${action} failed (${res.status})${hint}`);
 	}
 
 	return res.json() as Promise<T>;
