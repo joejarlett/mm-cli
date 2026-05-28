@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -91,7 +92,19 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 	client := mmhttp.New()
 
 	dispatch := func(featureAction string, payload map[string]any) error {
-		res, err := client.V2(ctx, app.URL, featureAction, payload, mmhttp.V2Opts{InstanceID: instance})
+		// Resolve the target instance when the caller didn't pass --instance.
+		// Instance-scoped apps (kb/finances/gn/crm) otherwise 422 with
+		// "X-Hub-Instance-Id required". Resolution honours the user's pinned
+		// default (mm <app> use); ambiguity surfaces a helpful error.
+		inst := instance
+		if inst == "" {
+			resolved, rerr := resolveDefaultInstance(ctx, client, slug)
+			if rerr != nil {
+				return rerr
+			}
+			inst = resolved
+		}
+		res, err := client.V2(ctx, app.URL, featureAction, payload, mmhttp.V2Opts{InstanceID: inst})
 		if err != nil {
 			return err
 		}
@@ -113,6 +126,26 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 	}
 
 	switch verb {
+	case "use":
+		// `mm <app> use <instance-name-or-id>` — pin the default instance.
+		if len(rest) == 0 {
+			return fmt.Errorf("Usage: mm %s use <instance-name-or-id>", slug)
+		}
+		target := strings.Join(rest, " ")
+		items, err := listInstances(ctx, client, slug)
+		if err != nil {
+			return err
+		}
+		match, err := matchInstance(items, target)
+		if err != nil {
+			return err
+		}
+		if err := client.Hub(ctx, "instance", "setDefault",
+			map[string]any{"slug": slug, "instanceId": match.ID}, &struct{}{}); err != nil {
+			return err
+		}
+		fmt.Printf("Default %s instance → %q `%s`\n", slug, match.Name, match.ID)
+		return nil
 	case "ask":
 		q := strings.Join(rest, " ")
 		if q == "" {
@@ -148,4 +181,99 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 		payload := parseKV(rest[1:])
 		return dispatch(feature+"."+action, payload)
 	}
+}
+
+// ── Instance resolution ─────────────────────────────────────────────────
+
+type instanceItem struct {
+	ID        string `json:"id"`
+	AppSlug   string `json:"appSlug"`
+	Name      string `json:"name"`
+	IsOwner   bool   `json:"isOwner"`
+	IsPrimary bool   `json:"isPrimary"`
+}
+
+func listInstances(ctx context.Context, client *mmhttp.Client, slug string) ([]instanceItem, error) {
+	var resp struct {
+		Instances []instanceItem `json:"instances"`
+	}
+	if err := client.Hub(ctx, "instance", "list", map[string]any{"slug": slug}, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Instances, nil
+}
+
+// resolveDefaultInstance picks the instance for an instance-scoped app when
+// no --instance was given: the sole instance, or the pinned default. Returns
+// "" for apps the user has no instance of (unscoped apps ignore the header).
+// Errors only when it's genuinely ambiguous and no default is pinned.
+func resolveDefaultInstance(ctx context.Context, client *mmhttp.Client, slug string) (string, error) {
+	items, err := listInstances(ctx, client, slug)
+	if err != nil {
+		// Soft-fail: don't block a call on a resolution hiccup. If the app
+		// truly needs an instance it'll return its own 422.
+		return "", nil
+	}
+	switch len(items) {
+	case 0:
+		return "", nil
+	case 1:
+		return items[0].ID, nil
+	}
+	for _, it := range items {
+		if it.IsPrimary {
+			return it.ID, nil
+		}
+	}
+	names := make([]string, 0, len(items))
+	for _, it := range items {
+		names = append(names, fmt.Sprintf("%q", it.Name))
+	}
+	return "", fmt.Errorf(
+		"multiple %s instances and no default set.\nPin one:  mm %s use \"<name>\"   (or pass --instance <id>)\nInstances: %s",
+		slug, slug, strings.Join(names, ", "),
+	)
+}
+
+// matchInstance resolves a name-or-id against the user's instances, with the
+// same exact→case-insensitive→substring ladder used elsewhere; ambiguity is
+// an error listing the candidates.
+func matchInstance(items []instanceItem, target string) (instanceItem, error) {
+	for _, it := range items {
+		if it.ID == target {
+			return it, nil
+		}
+	}
+	lower := strings.ToLower(target)
+	var matches []instanceItem
+	for _, it := range items {
+		if it.Name == target {
+			matches = append(matches, it)
+		}
+	}
+	if len(matches) == 0 {
+		for _, it := range items {
+			if strings.ToLower(it.Name) == lower {
+				matches = append(matches, it)
+			}
+		}
+	}
+	if len(matches) == 0 {
+		for _, it := range items {
+			if strings.Contains(strings.ToLower(it.Name), lower) {
+				matches = append(matches, it)
+			}
+		}
+	}
+	if len(matches) == 0 {
+		return instanceItem{}, fmt.Errorf("no instance matching %q", target)
+	}
+	if len(matches) > 1 {
+		names := make([]string, len(matches))
+		for i, m := range matches {
+			names[i] = fmt.Sprintf("%q", m.Name)
+		}
+		return instanceItem{}, fmt.Errorf("ambiguous %q — matches: %s", target, strings.Join(names, ", "))
+	}
+	return matches[0], nil
 }
