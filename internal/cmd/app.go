@@ -110,6 +110,11 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 		}
 		if wantJSON {
 			fmt.Println(string(res.Body))
+		} else if md := extractMarkdownSnapshot(res.Body); md != "" {
+			// agent.chat returns {intent, entities, writes, markdown_snapshot};
+			// the snapshot is the human/agent-readable answer (architecture.md
+			// §4.2). Prefer it over dumping the raw envelope.
+			fmt.Println(md)
 		} else {
 			var v any
 			if json.Unmarshal(res.Body, &v) == nil {
@@ -181,6 +186,19 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 		payload := parseKV(rest[1:])
 		return dispatch(feature+"."+action, payload)
 	}
+}
+
+// extractMarkdownSnapshot pulls the `markdown_snapshot` field out of an
+// agent.chat response, or "" if absent. Lets `ask` render the readable
+// answer instead of the raw {intent, entities, writes, …} envelope.
+func extractMarkdownSnapshot(body []byte) string {
+	var probe struct {
+		MarkdownSnapshot string `json:"markdown_snapshot"`
+	}
+	if json.Unmarshal(body, &probe) == nil {
+		return strings.TrimSpace(probe.MarkdownSnapshot)
+	}
+	return ""
 }
 
 // ── Instance resolution ─────────────────────────────────────────────────
