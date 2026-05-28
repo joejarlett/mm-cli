@@ -14,6 +14,18 @@ Status probed live **2026-05-28** (architecture.md's table was 2026-05-20 and ha
 
 ---
 
+## Progress log
+
+**2026-05-28 — auth gap closed, default-instance shipped.**
+- **Auth gap fixed at the root (option b).** SDK (`@meta-me/app-agent`) now accepts the `mm_…` CLI bearer as a first-class `cli` auth mode (satisfies public/session/hub/either, not install), validated via `/api/cli/validate`. Deployed to **finances, crm, analytics, gn(v4), kb** + hub. `mm <app> ask` went from a hard 401 to working.
+- **Default-instance shipped.** `instance.setDefault` (hub) + `mm <app> use <name|id>` (CLI) + dispatch-time resolution (sole instance → pinned default → helpful ambiguity error). `capture.resolveInstanceId` unified onto the same `defaultInstance` pref. `mm finances ask` now works with zero flags.
+- **`ask` renders `markdown_snapshot`** (was dumping the raw envelope) — first piece of the §3.1 output contract, live.
+- **Verified:** `ask` returns readable prose on finances / analytics / gn.
+- **NOT yet done — the §4.4 wrapper-collapse.** kb and crm still use bespoke `/api/rpc` wrappers, so their universal `ask`/`find`/`use` are shadowed (`mm crm ask` → 404 'no handler for ask'). The auth fix has *unblocked* this, but the collapse is deferred: it's a deliberate refactor with design surface, and mm-cli currently carries unrelated in-flight work. Do it when that settles. crm matters most (5 instances → default-instance only helps it once it's on the universal path).
+- **Moot now:** the hub dispatch-bridge (we took option b instead). **Still open:** `default-instance.md`'s UI/tray setters; the resource-declaration model.
+
+---
+
 ## 0. Thesis
 
 The caller is an LLM. That is a *third* kind of operator, different from both the humans and the scripts a CLI usually serves:
