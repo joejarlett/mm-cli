@@ -37,8 +37,11 @@ func newCrmAskCmd() *cobra.Command {
 }
 
 func newCrmUseCmd() *cobra.Command {
-	return &cobra.Command{Use: "use <instance-name-or-id>", Short: "Pin the default CRM instance", Args: cobra.MinimumNArgs(1),
+	return &cobra.Command{Use: "use [instance-name-or-id]", Short: "Show CRM instances, or pin the default", Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return showInstances(cmd, "crm")
+			}
 			return pinDefaultInstance(cmd, "crm", strings.Join(args, " "))
 		}}
 }

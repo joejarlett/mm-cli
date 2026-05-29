@@ -94,9 +94,10 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 
 	switch verb {
 	case "use":
-		// `mm <app> use <instance-name-or-id>` — pin the default instance.
+		// `mm <app> use` — show instances + current default.
+		// `mm <app> use <name-or-id>` — pin the default.
 		if len(rest) == 0 {
-			return fmt.Errorf("Usage: mm %s use <instance-name-or-id>", slug)
+			return showInstances(cmd, slug)
 		}
 		return pinDefaultInstance(cmd, slug, strings.Join(rest, " "))
 	case "ask":
@@ -211,6 +212,39 @@ func extractError(body []byte) string {
 		}
 	}
 	return ""
+}
+
+// showInstances lists an app's instances, marking the pinned default — the
+// CLI's read view of default-instance state (companion to `use <name>`).
+func showInstances(cmd *cobra.Command, slug string) error {
+	ctx := cmd.Context()
+	client := mmhttp.New()
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	items, err := listInstances(ctx, client, slug)
+	if err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(items, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	if len(items) == 0 {
+		fmt.Printf("No %s instances.\n", slug)
+		return nil
+	}
+	fmt.Printf("# %s instances (%d)\n\n", slug, len(items))
+	for _, it := range items {
+		marker := "  "
+		suffix := ""
+		if it.IsPrimary {
+			marker = "● "
+			suffix = "  _(default)_"
+		}
+		fmt.Printf("%s%s `%s`%s\n", marker, it.Name, it.ID, suffix)
+	}
+	fmt.Printf("\nSet default: mm %s use \"<name>\"\n", slug)
+	return nil
 }
 
 // pinDefaultInstance resolves a name-or-id against the user's instances for
