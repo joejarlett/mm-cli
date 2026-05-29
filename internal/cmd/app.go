@@ -162,6 +162,18 @@ func runV2(cmd *cobra.Command, slug, featureAction string, payload map[string]an
 	if err != nil {
 		return err
 	}
+	// On failure, surface the structured error (the SDK's did-you-mean
+	// message) cleanly instead of dumping the envelope. --json still gets
+	// the raw body for scripting.
+	if !res.OK {
+		if wantJSON {
+			fmt.Println(string(res.Body))
+		}
+		if msg := extractError(res.Body); msg != "" {
+			return fmt.Errorf("%s", msg)
+		}
+		return fmt.Errorf("HTTP %d", res.Status)
+	}
 	if wantJSON {
 		fmt.Println(string(res.Body))
 	} else if md := extractMarkdownSnapshot(res.Body); md != "" {
@@ -175,10 +187,30 @@ func runV2(cmd *cobra.Command, slug, featureAction string, payload map[string]an
 			fmt.Println(string(res.Body))
 		}
 	}
-	if !res.OK {
-		return fmt.Errorf("HTTP %d", res.Status)
-	}
 	return nil
+}
+
+// extractError pulls a human message from a JSON:API-ish error envelope
+// ({errors:[{message|detail|title}]}), or "" if the body isn't one.
+func extractError(body []byte) string {
+	var e struct {
+		Errors []struct {
+			Message string `json:"message"`
+			Detail  string `json:"detail"`
+			Title   string `json:"title"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(body, &e) == nil && len(e.Errors) > 0 {
+		switch {
+		case e.Errors[0].Message != "":
+			return e.Errors[0].Message
+		case e.Errors[0].Detail != "":
+			return e.Errors[0].Detail
+		default:
+			return e.Errors[0].Title
+		}
+	}
+	return ""
 }
 
 // pinDefaultInstance resolves a name-or-id against the user's instances for
