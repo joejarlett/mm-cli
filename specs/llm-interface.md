@@ -22,7 +22,20 @@ Status probed live **2026-05-28** (architecture.md's table was 2026-05-20 and ha
 - **`ask` renders `markdown_snapshot`** (was dumping the raw envelope) — first piece of the §3.1 output contract, live.
 - **Verified:** `ask` returns readable prose on finances / analytics / gn.
 - **NOT yet done — the §4.4 wrapper-collapse.** kb and crm still use bespoke `/api/rpc` wrappers, so their universal `ask`/`find`/`use` are shadowed (`mm crm ask` → 404 'no handler for ask'). The auth fix has *unblocked* this, but the collapse is deferred: it's a deliberate refactor with design surface, and mm-cli currently carries unrelated in-flight work. Do it when that settles. crm matters most (5 instances → default-instance only helps it once it's on the universal path).
-- **Moot now:** the hub dispatch-bridge (we took option b instead). **Still open:** `default-instance.md`'s UI/tray setters; the resource-declaration model.
+- **Moot now:** the hub dispatch-bridge (we took option b instead).
+
+**2026-05-29 — universal verbs everywhere; contracts landing via shared helpers.**
+- **crm wrapper-collapse (partial).** `mm crm ask`/`use` now route to `/api/v2` (was a 404); crm's bespoke verbs still ride `/api/rpc`. Extracted `runV2` + `pinDefaultInstance` so the universal verbs and the kb/crm wrappers share one dispatch/resolve/render path.
+- **SDK error contract (§3.2).** Unknown feature/action now returns did-you-mean suggestions + the known list (edit-distance, in the dispatcher → every app inherits). CLI renders the structured message instead of dumping the envelope. Deployed to all apps.
+- **kb `research.create` 500 → clean error.** Reported via feedback: a bad/foreign collectionId hit the FK constraint and surfaced as an HTML 500. Now UUID-format + existence check. (Plus `mm kb tree <id>` / `read <short_id>` confirmed fixed by the Go kb.go rewrite.) 3 kb-cli feedback items resolved.
+- **GWS upgrades** (`specs/gws-cli-upgrades.md`) shipped: `mm email --from`/`trash` (real Gmail) + `mm calendar get`/`delete`, full stack, verified with round-trips.
+- **Global doc-name resolution.** `mm kb rm/read/move/rename "<title>"` no longer demands `in=<notebook>` — bare names resolve across notebooks (one `documents.list`), candidate list on ambiguity. (This was the reported "`mm kb rm` doesn't work".)
+- **`mm <app> use` (no arg)** lists instances + marks the default.
+
+**Design call (2026-05-29) — incremental shared helpers over a big-bang §7 generator.**
+The resource-declaration model (§7) stays the north star, but we are **not** building the declaration-generator speculatively. Every friction point so far (instance resolution, error rendering, doc-name resolution) has been cured by pulling the behaviour into a **shared helper** that multiple apps call (`runV2`, `pinDefaultInstance`, `resolveDocument`). That delivers §7's real payoff — uniform, name-tolerant, predictable behaviour — at a fraction of the risk, driven by actual friction. The generator only earns its keep at many more than five apps. So: **capture the contracts incrementally via shared code; reach for the generator only if duplication starts to bite.** The kb pilot is deferred, not cancelled.
+
+**Still open:** `default-instance.md`'s UI/tray setters (CLI half done); bringing crm/finances verb-parity (rm/peek/move) up to kb's via the shared helpers; the §7 generator (north star, not yet warranted).
 
 ---
 
@@ -160,7 +173,7 @@ Smallest viable cut: **(1) alone** turns the already-built universal verbs from 
 
 ## 7. The resource-declaration model — concrete design
 
-> Status: **design for approval.** This is the spine that answers Q3/Q4 and lets the kb/crm bespoke wrappers (and `kb.go`'s ~700 lines) collapse to thin dispatchers. A POC + kb pilot follows once the shape is agreed — not built blind.
+> Status: **north star, not yet warranted** (see the 2026-05-29 design call in the Progress log). The spine that *could* answer Q3/Q4 and collapse the kb/crm wrappers to thin dispatchers — but we're capturing its payoff incrementally via shared helpers (`runV2`, `pinDefaultInstance`, `resolveDocument`) instead of building the generator speculatively. Revisit when app count or duplication grows. Design kept below so it's ready when that day comes.
 
 **Idea:** an app stops *hand-writing* `tree`/`peek`/`find`/`rename`/`move`/`tag`/`rm`. It **declares its resource taxonomy**, and the SDK **generates** the canonical control-plane verbs (§1) from that declaration — with name resolution, the §3 contracts, and rendering wired once. "I have collections containing documents; documents have a title and a body" → the full verb surface, identical across every app.
 
