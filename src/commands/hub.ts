@@ -72,14 +72,14 @@ Examples:
   mm sql "SELECT * FROM error WHERE app_slug='kb' LIMIT 5" --json`);
 }
 
-export async function sqlDispatch(args: string[], flags: { json?: boolean }) {
+export async function sqlDispatch(args: string[], flags: { json?: boolean }, dbOverride?: ReturnType<typeof db>) {
 	const first = args[0];
 	if (!first || first === 'help' || first === '--help' || first === '-h') {
 		printSqlHelp();
 		if (!first) process.exit(1);
 		return;
 	}
-	const sql = db();
+	const sql = dbOverride ?? db();
 	try {
 		const result = await sql.unsafe(first);
 		if (flags.json) return outJson(result);
