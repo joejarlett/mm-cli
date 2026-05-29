@@ -155,3 +155,67 @@ Smallest viable cut: **(1) alone** turns the already-built universal verbs from 
 - **Q2.** Threshold + format for the §3.1 file-receipt pattern — one platform default, or per-action `hint`?
 - **Q3.** Composite read actions (`peek`, `tree`) — per-app, or a shared SDK helper? **Leaning settled by §0: shared SDK helper**, adopted by all apps. Remaining detail: how much does the helper assume about an app's schema (does it need a per-app "resource map" to know what `tree`/`peek` mean)?
 - **Q4.** Shared verb vocabulary — *enforced* or *conventional*? **Leaning settled by §0: enforced** (we control every caller, so the SDK can reject non-canonical verbs). Remaining detail: the canonical verb list itself — which verbs are universal vs legitimately app-specific?
+
+---
+
+## 7. The resource-declaration model — concrete design
+
+> Status: **design for approval.** This is the spine that answers Q3/Q4 and lets the kb/crm bespoke wrappers (and `kb.go`'s ~700 lines) collapse to thin dispatchers. A POC + kb pilot follows once the shape is agreed — not built blind.
+
+**Idea:** an app stops *hand-writing* `tree`/`peek`/`find`/`rename`/`move`/`tag`/`rm`. It **declares its resource taxonomy**, and the SDK **generates** the canonical control-plane verbs (§1) from that declaration — with name resolution, the §3 contracts, and rendering wired once. "I have collections containing documents; documents have a title and a body" → the full verb surface, identical across every app.
+
+### Declaration shape (sketch)
+
+```ts
+defineResources({
+  collection: {
+    label: 'notebook',
+    nameField: 'name',          // human handle: resolution + display
+    parentOf: 'document',        // hierarchy → drives `tree`
+    actions: { list, get, create, rename: (id,name)=>update({id,name}), remove, surface, digest },
+  },
+  document: {
+    label: 'doc',
+    nameField: 'title',
+    parent: 'collection',
+    bodyField: 'content',        // drives `read` (→ file-receipt) + `peek` snippet
+    actions: { list /* ({parentId}) */, get, create, rename, move, remove, search },
+    labels: { attach, detach, replace },   // drives `tag`/`untag`
+  },
+})
+```
+
+Each `actions.*` is an *existing* app function — the declaration is wiring, not new logic.
+
+### Generated verbs (the canonical vocabulary — Q4)
+
+| Verb | Generated from | Notes |
+|------|----------------|-------|
+| `tree [parent]` | `parentOf` + `list` | parents with child counts; one level down when scoped |
+| `peek <ref>` | `get` (+children/outline) | name-or-id; composite (see open points) |
+| `read <ref>` | `bodyField` | large body → file-receipt (§3.1) |
+| `find <q> [in]` | `search` | scoped by parent |
+| `rename <ref> <name>` | `nameField` update | |
+| `move <ref> <parent>` | `move` | |
+| `tag`/`untag <ref> <label>` | `labels.*` | |
+| `add <parent> …` / `rm <ref>` | `create`/`remove` | |
+
+**Name resolution** (`ref = name｜id`, disambiguation with candidate lists — §3.3) lives in the generated layer, **once**, instead of re-implemented per app (kb.go, crm.go, capture.ts all do their own today).
+
+### Why this is the spine
+
+- Deletes per-app verb code: `kb.go`'s intent verbs and crm's wrapper become `dispatch(kb, 'document.peek', {ref})` etc.
+- The §3 contracts (output/error/reference/grammar/safety) are enforced **in the generator**, so every app conforms by construction — resolves Q4 (enforced) and Q3 (shared SDK helper, schema-aware via the declaration).
+- New app = declare resources → full LLM-friendly surface for free.
+
+### Migration (kb pilot, gated on approval)
+
+1. kb already has `collections`/`documents` + every needed action. Add `defineResources(...)` → generated verbs appear on kb `/api/v2`.
+2. Ship behind the existing `mm kb` verbs for parity, diff the output, then point `kb.go` at the generated actions and delete its hand logic.
+3. Repeat for crm. `capture.resolveInstanceId`-style duplication folds into the shared layer.
+
+### Open design points (need a call before building)
+
+- **Composite reads.** kb's `peek` pulls children *and* research runs; crm's pulls interactions. Generic "`peek` = get + list-children" won't cover that. Declared **composites** (`peek: [get, children, research.list]`) vs a generic peek + per-app extension hook?
+- **Wire naming.** `document.peek` (resource-qualified action) vs `peek` with a resource arg. Resource-qualified is more explicit for the manifest/`mm <app> actions`.
+- **Render split.** Generated actions return *structured* data; the CLI renders markdown / `--json` (keeps "intelligence server-side, rendering at the edge"). Confirm rendering never leaks server-side.
