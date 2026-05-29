@@ -7,13 +7,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// NewCrmCmd builds `mm crm …` — legacy /api/rpc wrapper.
+// NewCrmCmd builds `mm crm …`. Bespoke verbs (surface/contacts/log/…) ride
+// crm's legacy /api/rpc; the universal `ask`/`use` route to /api/v2 via the
+// shared runV2/pinDefaultInstance path (so default-instance + markdown
+// rendering work uniformly). CRM is multi-instance, so `mm crm use <name>`
+// pins which one `ask` targets.
 func NewCrmCmd() *cobra.Command {
 	c := &cobra.Command{Use: "crm", Short: "CRM"}
 	c.AddCommand(
 		newCrmSurfaceCmd(), newCrmContactsCmd(), newCrmProjectsCmd(),
 		newCrmLogCmd(), newCrmContextCmd(), newCrmPeekCmd(),
-		newCrmReadCmd(), newCrmFindCmd(),
+		newCrmReadCmd(), newCrmFindCmd(), newCrmAskCmd(), newCrmUseCmd(),
 	)
 	c.Args = cobra.ArbitraryArgs
 	c.RunE = func(cmd *cobra.Command, args []string) error {
@@ -23,6 +27,20 @@ func NewCrmCmd() *cobra.Command {
 		return crmDispatch(cmd.Context(), args[0], args[1], parseKV(args[2:]))
 	}
 	return c
+}
+
+func newCrmAskCmd() *cobra.Command {
+	return &cobra.Command{Use: "ask [question]", Short: "Ask the CRM agent (agent.chat)", Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runV2(cmd, "crm", "agent.chat", map[string]any{"question": strings.Join(args, " ")}, "")
+		}}
+}
+
+func newCrmUseCmd() *cobra.Command {
+	return &cobra.Command{Use: "use <instance-name-or-id>", Short: "Pin the default CRM instance", Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return pinDefaultInstance(cmd, "crm", strings.Join(args, " "))
+		}}
 }
 
 func newCrmSurfaceCmd() *cobra.Command {

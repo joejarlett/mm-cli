@@ -85,49 +85,11 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 
 	verb := args[0]
 	rest := args[1:]
-	app, err := apps.Resolve(slug)
-	if err != nil {
-		return err
-	}
-	client := mmhttp.New()
 
+	// dispatch sends feature.action to the app's /api/v2 with instance
+	// resolution + rendering shared with the kb/crm wrappers (see runV2).
 	dispatch := func(featureAction string, payload map[string]any) error {
-		// Resolve the target instance when the caller didn't pass --instance.
-		// Instance-scoped apps (kb/finances/gn/crm) otherwise 422 with
-		// "X-Hub-Instance-Id required". Resolution honours the user's pinned
-		// default (mm <app> use); ambiguity surfaces a helpful error.
-		inst := instance
-		if inst == "" {
-			resolved, rerr := resolveDefaultInstance(ctx, client, slug)
-			if rerr != nil {
-				return rerr
-			}
-			inst = resolved
-		}
-		res, err := client.V2(ctx, app.URL, featureAction, payload, mmhttp.V2Opts{InstanceID: inst})
-		if err != nil {
-			return err
-		}
-		if wantJSON {
-			fmt.Println(string(res.Body))
-		} else if md := extractMarkdownSnapshot(res.Body); md != "" {
-			// agent.chat returns {intent, entities, writes, markdown_snapshot};
-			// the snapshot is the human/agent-readable answer (architecture.md
-			// §4.2). Prefer it over dumping the raw envelope.
-			fmt.Println(md)
-		} else {
-			var v any
-			if json.Unmarshal(res.Body, &v) == nil {
-				out, _ := json.MarshalIndent(v, "", "  ")
-				fmt.Println(string(out))
-			} else {
-				fmt.Println(string(res.Body))
-			}
-		}
-		if !res.OK {
-			return fmt.Errorf("HTTP %d", res.Status)
-		}
-		return nil
+		return runV2(cmd, slug, featureAction, payload, instance)
 	}
 
 	switch verb {
@@ -136,21 +98,7 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 		if len(rest) == 0 {
 			return fmt.Errorf("Usage: mm %s use <instance-name-or-id>", slug)
 		}
-		target := strings.Join(rest, " ")
-		items, err := listInstances(ctx, client, slug)
-		if err != nil {
-			return err
-		}
-		match, err := matchInstance(items, target)
-		if err != nil {
-			return err
-		}
-		if err := client.Hub(ctx, "instance", "setDefault",
-			map[string]any{"slug": slug, "instanceId": match.ID}, &struct{}{}); err != nil {
-			return err
-		}
-		fmt.Printf("Default %s instance → %q `%s`\n", slug, match.Name, match.ID)
-		return nil
+		return pinDefaultInstance(cmd, slug, strings.Join(rest, " "))
 	case "ask":
 		q := strings.Join(rest, " ")
 		if q == "" {
@@ -186,6 +134,73 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 		payload := parseKV(rest[1:])
 		return dispatch(feature+"."+action, payload)
 	}
+}
+
+// runV2 dispatches feature.action to an app's /api/v2 with instance
+// resolution and human/JSON rendering — the shared path behind the
+// universal verbs (app.go) and the kb/crm wrappers. When instanceFlag is
+// empty it resolves the user's instance (sole → pinned default → helpful
+// ambiguity error). Renders agent.chat's markdown_snapshot when present.
+func runV2(cmd *cobra.Command, slug, featureAction string, payload map[string]any, instanceFlag string) error {
+	ctx := cmd.Context()
+	app, err := apps.Resolve(slug)
+	if err != nil {
+		return err
+	}
+	client := mmhttp.New()
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	inst := instanceFlag
+	if inst == "" {
+		resolved, rerr := resolveDefaultInstance(ctx, client, slug)
+		if rerr != nil {
+			return rerr
+		}
+		inst = resolved
+	}
+	res, err := client.V2(ctx, app.URL, featureAction, payload, mmhttp.V2Opts{InstanceID: inst})
+	if err != nil {
+		return err
+	}
+	if wantJSON {
+		fmt.Println(string(res.Body))
+	} else if md := extractMarkdownSnapshot(res.Body); md != "" {
+		fmt.Println(md)
+	} else {
+		var v any
+		if json.Unmarshal(res.Body, &v) == nil {
+			out, _ := json.MarshalIndent(v, "", "  ")
+			fmt.Println(string(out))
+		} else {
+			fmt.Println(string(res.Body))
+		}
+	}
+	if !res.OK {
+		return fmt.Errorf("HTTP %d", res.Status)
+	}
+	return nil
+}
+
+// pinDefaultInstance resolves a name-or-id against the user's instances for
+// an app and writes it as the default (hub instance.setDefault). Shared by
+// `mm <app> use` across the universal path and the kb/crm wrappers.
+func pinDefaultInstance(cmd *cobra.Command, slug, target string) error {
+	ctx := cmd.Context()
+	client := mmhttp.New()
+	items, err := listInstances(ctx, client, slug)
+	if err != nil {
+		return err
+	}
+	match, err := matchInstance(items, target)
+	if err != nil {
+		return err
+	}
+	if err := client.Hub(ctx, "instance", "setDefault",
+		map[string]any{"slug": slug, "instanceId": match.ID}, &struct{}{}); err != nil {
+		return err
+	}
+	fmt.Printf("Default %s instance → %q `%s`\n", slug, match.Name, match.ID)
+	return nil
 }
 
 // extractMarkdownSnapshot pulls the `markdown_snapshot` field out of an
