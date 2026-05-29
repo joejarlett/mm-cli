@@ -186,28 +186,28 @@ func TestPreprocessArgs(t *testing.T) {
 	}{
 		{
 			name:     "No mentions",
-			args:     []string{"chat", "list"},
-			expected: []string{"chat", "list"},
+			args:     []string{"desk", "list"},
+			expected: []string{"desk", "list"},
 		},
 		{
 			name:     "Simple node mention conversion",
-			args:     []string{"chat", "list", "@fedora"},
-			expected: []string{"chat", "list", "--node", "fedora"},
+			args:     []string{"desk", "list", "@fedora"},
+			expected: []string{"desk", "list", "--node", "fedora"},
 		},
 		{
 			name:     "Simple node and project mention conversion",
-			args:     []string{"chat", "list", "@fedora", "@myproject"},
-			expected: []string{"chat", "list", "--node", "fedora", "--project", "myproject"},
+			args:     []string{"desk", "list", "@fedora", "@myproject"},
+			expected: []string{"desk", "list", "--node", "fedora", "--project", "myproject"},
 		},
 		{
 			name:     "Ignore @@ escaped mention",
-			args:     []string{"chat", "list", "@@fedora"},
-			expected: []string{"chat", "list", "@@fedora"},
+			args:     []string{"desk", "list", "@@fedora"},
+			expected: []string{"desk", "list", "@@fedora"},
 		},
 		{
 			name:     "Pre-existing flag overrides mention",
-			args:     []string{"chat", "list", "@ubuntu", "--node", "fedora"},
-			expected: []string{"chat", "list", "--node", "fedora"}, // @ubuntu is consumed because it matches but gets overridden by --node fedora
+			args:     []string{"desk", "list", "@ubuntu", "--node", "fedora"},
+			expected: []string{"desk", "list", "--node", "fedora"}, // @ubuntu is consumed because it matches but gets overridden by --node fedora
 		},
 	}
 

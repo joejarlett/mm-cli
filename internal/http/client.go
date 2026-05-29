@@ -131,6 +131,47 @@ func (c *Client) Hub(ctx context.Context, feature, action string, payload any, o
 	return nil
 }
 
+// HubFetch makes a direct authenticated request to {HubURL}{path}.
+// Does NOT go through /api/mm — use Client.Hub for mm-RPC calls.
+func (c *Client) HubFetch(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
+	if c.Auth == nil {
+		return nil, fmt.Errorf("not authenticated. Run `mm login` first.")
+	}
+	urlStr := c.Cfg.HubURL + path
+	var r io.Reader
+	if len(body) > 0 {
+		r = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, urlStr, r)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Auth.Token)
+	req.Header.Set("X-Hub-User-Id", c.Auth.UserID)
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	return c.HTTPClient.Do(req)
+}
+
+// HubStream makes a streaming SSE POST to {HubURL}{path}.
+// Uses a client without a timeout — caller must close resp.Body.
+func (c *Client) HubStream(ctx context.Context, path string, body []byte) (*http.Response, error) {
+	if c.Auth == nil {
+		return nil, fmt.Errorf("not authenticated. Run `mm login` first.")
+	}
+	urlStr := c.Cfg.HubURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Auth.Token)
+	req.Header.Set("X-Hub-User-Id", c.Auth.UserID)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	return (&http.Client{}).Do(req)
+}
+
 // coalescePayload ensures the request body sends `{}` rather than `null`
 // when the caller passes nil. Matches TS behaviour.
 func coalescePayload(p any) any {

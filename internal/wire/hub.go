@@ -440,6 +440,32 @@ type HubAuditShowResp struct {
 	Rows      []HubAuditRunDetail `json:"rows"`
 }
 
+// ─── Hub conversations ─────────────────────────────────────────────────
+
+type HubConversation struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+	Pinned    bool   `json:"pinned"`
+}
+
+type HubConversationsListResp struct {
+	Conversations []HubConversation `json:"conversations"`
+}
+
+type HubConversationMessage struct {
+	ID        string  `json:"id"`
+	Role      string  `json:"role"`
+	Content   string  `json:"content"`
+	CreatedAt string  `json:"createdAt"`
+	ModelID   *string `json:"modelId"`
+}
+
+type HubMessagesListResp struct {
+	Messages []HubConversationMessage `json:"messages"`
+}
+
 // ─── Envelope ──────────────────────────────────────────────────────────
 
 // HubEnvelope is the top-level response shape for /api/mm and /api/v2.

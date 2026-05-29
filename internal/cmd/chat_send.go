@@ -41,7 +41,7 @@ func newChatSendCmd() *cobra.Command {
 func runChatSend(cmd *cobra.Command, args []string) error {
 	rawMessage := strings.Join(args, " ")
 	if rawMessage == "" {
-		return fmt.Errorf("Usage: mm chat send \"<message>\"")
+		return fmt.Errorf("Usage: mm desk send \"<message>\"")
 	}
 
 	isNew, _ := cmd.Flags().GetBool("new")
