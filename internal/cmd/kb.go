@@ -286,19 +286,19 @@ func resolveCollection(ctx context.Context, input string) (collRef, error) {
 	if err != nil {
 		return collRef{}, err
 	}
-	if isID(input) {
+	// Only a FULL uuid resolves as a collection id. Short/partial hex ids are
+	// NOT matched here: these are uuidv7, whose leading chars are a shared
+	// timestamp, so an 8-char prefix collides across notebooks AND documents
+	// created around the same time. Short ids belong to documents (that's what
+	// the CLI displays them for) and are resolved there; treating them as a
+	// collection prefix here silently renamed/peeked the wrong notebook.
+	if uuidRE.MatchString(input) {
 		for _, c := range all {
-			if c.ID == input || strings.HasPrefix(c.ID, strings.ToLower(input)) {
+			if c.ID == input {
 				return c, nil
 			}
 		}
-		// Trust a full uuid the cache didn't have; but a short/partial id with
-		// no notebook prefix-match is NOT a collection — error so callers can
-		// fall through to document resolution instead of mis-claiming it.
-		if uuidRE.MatchString(input) {
-			return collRef{ID: input}, nil
-		}
-		return collRef{}, fmt.Errorf("no notebook matching %q", input)
+		return collRef{ID: input}, nil // trust a full uuid the cache didn't have
 	}
 	lower := strings.ToLower(input)
 	var matches []collRef
@@ -413,7 +413,12 @@ func resolveDocument(ctx context.Context, input, scope string) (docRef, error) {
 			}
 			return matches[0], nil
 		}
-		// 0 or many id-prefix hits → fall through to title matching.
+		if len(matches) > 1 {
+			// uuidv7 ids created together share a leading timestamp, so a
+			// short prefix can hit many docs. Don't guess — say so.
+			return docRef{}, fmt.Errorf("ambiguous id prefix %q — %d documents share it; use the full id", input, len(matches))
+		}
+		// No id-prefix hit → maybe it's a title; fall through.
 		matches = nil
 	}
 	for _, d := range docs {
@@ -652,19 +657,20 @@ func newKbTreeCmd() *cobra.Command {
 					return emit(cmd, mustJSON(ordered), strings.TrimRight(b.String(), "\n"))
 				}
 				type nb struct {
-					id, name string
-					count    int
+					ID    string `json:"id"`
+					Name  string `json:"name"`
+					Count int    `json:"docCount"`
 				}
 				var rows []nb
 				for _, c := range colls {
 					docs, _ := listDocuments(ctx, c.ID)
 					rows = append(rows, nb{c.ID, c.Name, len(docs)})
 				}
-				sort.Slice(rows, func(i, j int) bool { return rows[i].count > rows[j].count })
+				sort.Slice(rows, func(i, j int) bool { return rows[i].Count > rows[j].Count })
 				var b strings.Builder
 				fmt.Fprintf(&b, "# Notebooks (%d)\n\n", len(rows))
 				for _, r := range rows {
-					fmt.Fprintf(&b, "- **%s** — %d docs `%s`\n", r.name, r.count, r.id)
+					fmt.Fprintf(&b, "- **%s** — %d docs `%s`\n", r.Name, r.Count, r.ID)
 				}
 				return emit(cmd, mustJSON(rows), strings.TrimRight(b.String(), "\n"))
 			}
