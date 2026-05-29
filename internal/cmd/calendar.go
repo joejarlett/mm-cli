@@ -31,7 +31,7 @@ func NewCalendarCmd() *cobra.Command {
 	cmd.Flags().String("q", "", "Filter by query string")
 	cmd.Flags().String("account", "", "Pick a linked Google account")
 
-	cmd.AddCommand(newCalendarListCmd(), newCalendarNewCmd())
+	cmd.AddCommand(newCalendarListCmd(), newCalendarNewCmd(), newCalendarGetCmd(), newCalendarDeleteCmd())
 	return cmd
 }
 
@@ -277,4 +277,87 @@ func padRight(s string, n int) string {
 		return s
 	}
 	return s + strings.Repeat(" ", n-len(s))
+}
+
+func newCalendarGetCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "get <event-id>",
+		Short: "Inspect a single event by ID",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runCalendarGet,
+	}
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func runCalendarGet(cmd *cobra.Command, args []string) error {
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	req := map[string]any{"eventId": args[0]}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	var resp wire.HubCalendarGetResp
+	if err := http.New().Hub(cmd.Context(), "calendar", "get", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Fprintln(os.Stdout, string(out))
+		return nil
+	}
+	e := resp.Event
+	loc := ""
+	if e.Location != nil && *e.Location != "" {
+		loc = " 📍 " + *e.Location
+	}
+	att := ""
+	if e.Attendees > 0 {
+		att = fmt.Sprintf(" 👥 %d", e.Attendees)
+	}
+	fmt.Printf("%s %s — %s%s%s `%s`\n", fmtDay(e.Start), fmtTime(e.Start, e.AllDay), e.Summary, loc, att, e.ID)
+	if e.Description != nil && *e.Description != "" {
+		fmt.Printf("\n%s\n", *e.Description)
+	}
+	if e.HTMLLink != nil && *e.HTMLLink != "" {
+		fmt.Printf("\n[Event](%s)\n", *e.HTMLLink)
+	}
+	return nil
+}
+
+func newCalendarDeleteCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:     "delete <event-id>",
+		Aliases: []string{"rm"},
+		Short:   "Delete an event by ID",
+		Args:    cobra.ExactArgs(1),
+		RunE:    runCalendarDelete,
+	}
+	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("notify", "none", "Notify attendees: all|externalOnly|none")
+	return c
+}
+
+func runCalendarDelete(cmd *cobra.Command, args []string) error {
+	account, _ := cmd.Flags().GetString("account")
+	notify, _ := cmd.Flags().GetString("notify")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	req := map[string]any{"eventId": args[0]}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	if notify != "" && notify != "none" {
+		req["notify"] = notify
+	}
+	var resp wire.HubCalendarDeleteResp
+	if err := http.New().Hub(cmd.Context(), "calendar", "delete", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Fprintln(os.Stdout, string(out))
+		return nil
+	}
+	fmt.Printf("✓ Deleted event: %s\n", resp.EventID)
+	return nil
 }

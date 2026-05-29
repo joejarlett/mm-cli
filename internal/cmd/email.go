@@ -19,8 +19,102 @@ func NewEmailCmd() *cobra.Command {
 	cmd.AddCommand(
 		newEmailListCmd(), newEmailGetCmd(), newEmailSendCmd(),
 		newEmailDraftCmd(), newEmailResendCmd(), newEmailSearchCmd(), newEmailReadCmd(),
+		newEmailTrashCmd(),
 	)
 	return cmd
+}
+
+func newEmailTrashCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "trash <gmail-message-id>",
+		Short: "Move a Gmail message to the trash",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+			account, _ := cmd.Flags().GetString("account")
+			req := map[string]any{"id": args[0]}
+			if account != "" {
+				req["accountSlug"] = account
+			}
+			var resp wire.HubGmailTrashResp
+			if err := http.New().Hub(cmd.Context(), "email", "gmail.trash", req, &resp); err != nil {
+				return err
+			}
+			if wantJSON {
+				out, _ := json.MarshalIndent(resp, "", "  ")
+				fmt.Println(string(out))
+				return nil
+			}
+			fmt.Printf("✓ Trashed: %s\n", resp.ID)
+			return nil
+		},
+	}
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+// runGmailSend proxies a real Gmail draft/send through the gateway (the
+// --from path). Plain body by default; HTML auto-detected.
+func runGmailSend(cmd *cobra.Command, draftOnly bool, to, subject, body, from string) error {
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	if to == "" || subject == "" {
+		return fmt.Errorf("Usage: mm email %s --from <gmail> --to <addr> --subject <s> --body <text> [--cc a,b] [--bcc c]",
+			map[bool]string{true: "draft", false: "send"}[draftOnly])
+	}
+	req := map[string]any{"to": to, "subject": subject, "body": body, "from": from}
+	if strings.Contains(body, "<") && strings.Contains(body, ">") {
+		req["body_type"] = "html"
+	} else {
+		req["body_type"] = "plain"
+	}
+	if cc, _ := cmd.Flags().GetString("cc"); cc != "" {
+		req["cc"] = splitCSV(cc)
+	}
+	if bcc, _ := cmd.Flags().GetString("bcc"); bcc != "" {
+		req["bcc"] = splitCSV(bcc)
+	}
+
+	client := http.New()
+	if draftOnly {
+		var r wire.HubGmailDraftResp
+		if err := client.Hub(cmd.Context(), "email", "gmail.draft", req, &r); err != nil {
+			return err
+		}
+		if wantJSON {
+			out, _ := json.MarshalIndent(r, "", "  ")
+			fmt.Println(string(out))
+			return nil
+		}
+		fmt.Printf("✓ Gmail draft saved (to: %s)\n", to)
+		if r.MessageID != nil && *r.MessageID != "" {
+			fmt.Printf("  Message ID: %s\n", *r.MessageID)
+		}
+		return nil
+	}
+	var r wire.HubGmailSendResp
+	if err := client.Hub(cmd.Context(), "email", "gmail.send", req, &r); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(r, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	fmt.Printf("✓ Gmail sent (to: %s)\n", to)
+	if r.From != nil && *r.From != "" {
+		fmt.Printf("  From: %s\n", *r.From)
+	}
+	return nil
+}
+
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func newEmailListCmd() *cobra.Command {
@@ -70,6 +164,10 @@ func addSendFlags(c *cobra.Command) {
 	c.Flags().String("body", "", "Body (HTML or plain)")
 	c.Flags().String("text", "", "Plain-text body (default: stripped from --body)")
 	c.Flags().String("template", "", "Template name")
+	// --from routes to real Gmail (via the gateway) instead of the platform log.
+	c.Flags().String("from", "", "Send/draft from this Gmail address (real Gmail, bypasses the platform log)")
+	c.Flags().String("cc", "", "Comma-separated CC addresses (Gmail path only)")
+	c.Flags().String("bcc", "", "Comma-separated BCC addresses (Gmail path only)")
 }
 
 // ─── Implementations ───────────────────────────────────────────────────
@@ -178,9 +276,15 @@ func runEmailSend(cmd *cobra.Command, _ []string, draftOnly bool) error {
 	body, _ := cmd.Flags().GetString("body")
 	text, _ := cmd.Flags().GetString("text")
 	template, _ := cmd.Flags().GetString("template")
+	from, _ := cmd.Flags().GetString("from")
+
+	// --from → real Gmail via the gateway, bypassing the platform email log.
+	if from != "" {
+		return runGmailSend(cmd, draftOnly, to, subject, body, from)
+	}
 
 	if to == "" || subject == "" || body == "" {
-		return fmt.Errorf("Usage: mm email send --to <addr> --subject <s> --body <html> [--text <plain>] [--template <name>]")
+		return fmt.Errorf("Usage: mm email send --to <addr> --subject <s> --body <html> [--text <plain>] [--template <name>]\n   or: mm email send --from <gmail> --to <addr> --subject <s> --body <text>")
 	}
 	if text == "" {
 		text = stripHTML(body)

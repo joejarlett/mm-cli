@@ -7,14 +7,41 @@ package wire
 // ─── Calendar ──────────────────────────────────────────────────────────
 
 type HubCalendarEvent struct {
+	ID          string  `json:"id"`
+	Summary     string  `json:"summary"`
+	Description *string `json:"description,omitempty"`
+	Start       string  `json:"start"`
+	End         string  `json:"end"`
+	Location    *string `json:"location"`
+	HTMLLink    *string `json:"htmlLink"`
+	Attendees   int     `json:"attendees"`
+	AllDay      bool    `json:"allDay"`
+}
+
+type HubCalendarGetResp struct {
+	Event       HubCalendarEvent `json:"event"`
+	AccountSlug *string          `json:"accountSlug"`
+}
+
+type HubCalendarDeleteResp struct {
+	Deleted bool   `json:"deleted"`
+	EventID string `json:"eventId"`
+}
+
+type HubGmailSendResp struct {
+	ID       string  `json:"id"`
+	ThreadID string  `json:"threadId"`
+	From     *string `json:"from"`
+}
+
+type HubGmailDraftResp struct {
 	ID        string  `json:"id"`
-	Summary   string  `json:"summary"`
-	Start     string  `json:"start"`
-	End       string  `json:"end"`
-	Location  *string `json:"location"`
-	HTMLLink  *string `json:"htmlLink"`
-	Attendees int     `json:"attendees"`
-	AllDay    bool   `json:"allDay"`
+	MessageID *string `json:"messageId"`
+}
+
+type HubGmailTrashResp struct {
+	ID      string `json:"id"`
+	Trashed bool   `json:"trashed"`
 }
 
 type HubCalendarListReq struct {
