@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -27,20 +31,73 @@ var (
 		err := client.Hub(ctx, "audit", "show", req, &resp)
 		return resp, err
 	}
+	hermesLookPath = exec.LookPath
+	hermesRunFunc  = func(ctx context.Context, name string, args []string, dir string, env []string, wait bool) error {
+		c := exec.Command(name, args...)
+		c.Dir = dir
+		c.Env = env
+		if wait {
+			c.Stdout = os.Stdout
+			c.Stderr = os.Stderr
+			c.Stdin = os.Stdin
+			return c.Run()
+		}
+		c.SysProcAttr = &syscall.SysProcAttr{
+			Setsid: true,
+		}
+		return c.Start()
+	}
 )
 
-// NewRunCmd builds the `mm run` command — lists and shows Hermes runs
-// from the hub audit_report table.
+// NewRunCmd builds the `mm run` command — delegate tasks to Hermes and review results.
 func NewRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "run",
-		Short: "Hermes run history from the hub audit log",
-		Long:  "List recent Hermes agent runs and inspect full reports.\n\nDefault: list recent runs.",
-		Args:  cobra.NoArgs,
-		RunE:  runAuditListDefault,
+		Use:   "run [spec]",
+		Short: "delegate tasks to Hermes and review results",
+		Long: `mm run — delegate tasks to Hermes and review results
+
+Subcommands:
+  run "<spec>" [options]    Fire a Hermes run in an isolated worktree
+  run list [--limit N] [--json]
+                             Show recent runs, newest first (default limit 20)
+  run show <run-id> [--json]
+                             Show full detail for a single run (accepts prefix)
+
+Run options:
+  --project <name|path>   Project to work in (resolved from registered projects).
+                          Sets the cwd for Hermes — worktree is branched from here.
+  --thread <id>           Desk chat thread ID. Hermes injects a completion message
+                          when done ("results posted to admin/audit").
+  --model <id>            Model override (default: google/gemini-3.5-flash)
+  --skills <s1,s2>        Extra Hermes skills to preload (meta-me is always loaded)
+  --wait                  Run in foreground and stream Hermes output (default: background)
+  --dry-run               Print the Hermes command without running it
+
+Examples:
+  mm run "refactor error handling in keel's API routes" --project keel --thread abc123
+  mm run list
+  mm run list --limit 5 --json
+  mm run show hermes-bb44
+
+Hermes works in an isolated git worktree, posts a structured report to
+https://meta-me.uk/admin/audit, and notifies the desk thread when done.
+mm run list and mm run show read those reports from the CLI.`,
+		Args: cobra.ArbitraryArgs,
+		RunE: runParent,
 	}
+
+	// List flags
 	cmd.Flags().Int("limit", 25, "How many runs to fetch")
 	cmd.Flags().String("mode", "run", "Filter by mode (default: run)")
+
+	// Dispatch flags
+	cmd.Flags().StringP("project", "p", "", "Project to work in (resolved from registered projects)")
+	cmd.Flags().StringP("thread", "t", "", "Desk chat thread ID")
+	cmd.Flags().StringP("model", "m", "google/gemini-3.5-flash", "Model override")
+	cmd.Flags().StringP("skills", "s", "", "Extra Hermes skills to preload (comma-separated)")
+	cmd.Flags().Bool("wait", false, "Run in foreground and stream Hermes output")
+	cmd.Flags().Bool("dry-run", false, "Print the Hermes command without running it")
+
 	cmd.AddCommand(newRunListCmd(), newRunShowCmd())
 	return cmd
 }
@@ -67,8 +124,142 @@ func newRunShowCmd() *cobra.Command {
 	}
 }
 
-func runAuditListDefault(cmd *cobra.Command, args []string) error {
-	return runAuditList(cmd, args)
+func runParent(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return runAuditList(cmd, args)
+	}
+	return runDispatch(cmd, args)
+}
+
+var resolveProjectRoot = func(ctx context.Context, ref string) (string, error) {
+	client := http.New()
+	resp, err := client.AgentFetch(ctx, "", "/api/projects", nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("GET /api/projects %d", resp.StatusCode)
+	}
+	var data wire.AgentProjectsListResp
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return "", err
+	}
+	abs, _ := filepath.Abs(expandTilde(ref))
+	for _, p := range data.Projects {
+		if strings.EqualFold(p.Label, ref) || p.RootPath == abs || p.ID == ref {
+			return p.RootPath, nil
+		}
+	}
+	return "", fmt.Errorf("project not found: %s", ref)
+}
+
+func runDispatch(cmd *cobra.Command, args []string) error {
+	project, _ := cmd.Flags().GetString("project")
+	thread, _ := cmd.Flags().GetString("thread")
+	model, _ := cmd.Flags().GetString("model")
+	skillsStr, _ := cmd.Flags().GetString("skills")
+	wait, _ := cmd.Flags().GetBool("wait")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get cwd: %w", err)
+	}
+
+	if project != "" {
+		pRoot, err := resolveProjectRoot(cmd.Context(), project)
+		if err != nil {
+			return fmt.Errorf("Project %q not found. Run `mm project list` to see registered projects.", project)
+		}
+		cwd = pRoot
+	}
+
+	// Build prompt
+	spec := strings.Join(args, " ")
+	threadMarker := ""
+	if thread != "" {
+		threadMarker = fmt.Sprintf("MM_THREAD_ID=%s ", thread)
+	}
+	prompt := threadMarker + spec
+
+	// Build skills
+	var skills []string
+	skills = append(skills, "meta-me")
+	if skillsStr != "" {
+		for _, s := range strings.Split(skillsStr, ",") {
+			s = strings.TrimSpace(s)
+			if s != "" && s != "meta-me" {
+				skills = append(skills, s)
+			}
+		}
+	}
+	skillsArg := strings.Join(skills, ",")
+
+	// Assemble Hermes invocation
+	hermesArgs := []string{
+		"--worktree",
+		"--yolo",
+		"--accept-hooks",
+		"--pass-session-id",
+		"-s", skillsArg,
+		"chat",
+		"-q", prompt,
+	}
+
+	if dryRun {
+		var quotedArgs []string
+		for _, a := range hermesArgs {
+			if strings.Contains(a, " ") {
+				quotedArgs = append(quotedArgs, fmt.Sprintf(`"%s"`, a))
+			} else {
+				quotedArgs = append(quotedArgs, a)
+			}
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "HERMES_INFERENCE_MODEL=%s hermes %s\n", model, strings.Join(quotedArgs, " "))
+		fmt.Fprintf(cmd.OutOrStdout(), "cwd: %s\n", cwd)
+		return nil
+	}
+
+	_, err = hermesLookPath("hermes")
+	if err != nil {
+		return fmt.Errorf("hermes not found on PATH. Make sure Hermes Agent is installed")
+	}
+
+	env := append(os.Environ(), "HERMES_INFERENCE_MODEL="+model)
+
+	if wait {
+		err = hermesRunFunc(cmd.Context(), "hermes", hermesArgs, cwd, env, true)
+		if err != nil {
+			if exitError, ok := err.(*exec.ExitError); ok {
+				os.Exit(exitError.ExitCode())
+			}
+			return fmt.Errorf("failed to run hermes: %w", err)
+		}
+		return nil
+	}
+
+	err = hermesRunFunc(cmd.Context(), "hermes", hermesArgs, cwd, env, false)
+	if err != nil {
+		return fmt.Errorf("failed to spawn hermes: %w", err)
+	}
+
+	modelLabel := model
+	if idx := strings.LastIndexByte(model, '/'); idx >= 0 {
+		modelLabel = model[idx+1:]
+	}
+	projectLabel := project
+	if projectLabel == "" {
+		projectLabel = filepath.Base(cwd)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "▶ Hermes running in background (%s, worktree from %s)\n", modelLabel, projectLabel)
+	if thread != "" {
+		fmt.Fprintf(cmd.OutOrStdout(), "  Will notify thread %s on completion.\n", thread)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "  Results → https://meta-me.uk/admin/audit")
+
+	return nil
 }
 
 func runAuditList(cmd *cobra.Command, _ []string) error {
