@@ -344,6 +344,10 @@ func listDocuments(ctx context.Context, collectionID string) ([]docRef, error) {
 	return docs, nil
 }
 
+// resolveDocument turns an id or a name into a docRef. A bare name resolves
+// GLOBALLY across notebooks (one documents.list call) so callers like
+// `mm kb rm "<title>"` work without forcing in=<notebook>. Pass in= to scope
+// the lookup to one notebook (faster, disambiguates same-named docs).
 func resolveDocument(ctx context.Context, input, scope string) (docRef, error) {
 	if isID(input) {
 		s, _, err := kbSingle(ctx, "documents", "get", map[string]any{"id": input})
@@ -352,17 +356,36 @@ func resolveDocument(ctx context.Context, input, scope string) (docRef, error) {
 		}
 		return docRef{ID: s.Data.ID, Title: attrStr(s.Data.Attributes, "title"), CollectionID: attrStr(s.Data.Attributes, "collectionId")}, nil
 	}
-	if scope == "" {
-		return docRef{}, fmt.Errorf("document name lookup needs scope — add in=<notebook>")
+
+	var docs []docRef
+	scopeLabel := "any notebook"
+	scopedCollID := ""
+	if scope != "" {
+		coll, err := resolveCollection(ctx, scope)
+		if err != nil {
+			return docRef{}, err
+		}
+		scopedCollID = coll.ID
+		scopeLabel = fmt.Sprintf("%q", coll.Name)
+		docs, err = listDocuments(ctx, coll.ID)
+		if err != nil {
+			return docRef{}, err
+		}
+	} else {
+		// Global lookup — one documents.list across every notebook.
+		l, _, err := kbList(ctx, "documents", "list", nil)
+		if err != nil {
+			return docRef{}, err
+		}
+		for _, r := range l.Data {
+			docs = append(docs, docRef{
+				ID:           r.ID,
+				Title:        attrStr(r.Attributes, "title"),
+				CollectionID: attrStr(r.Attributes, "collectionId"),
+			})
+		}
 	}
-	coll, err := resolveCollection(ctx, scope)
-	if err != nil {
-		return docRef{}, err
-	}
-	docs, err := listDocuments(ctx, coll.ID)
-	if err != nil {
-		return docRef{}, err
-	}
+
 	lower := strings.ToLower(input)
 	var matches []docRef
 	for _, d := range docs {
@@ -385,12 +408,27 @@ func resolveDocument(ctx context.Context, input, scope string) (docRef, error) {
 		}
 	}
 	if len(matches) == 0 {
-		return docRef{}, fmt.Errorf("no document matching %q in %q", input, coll.Name)
+		return docRef{}, fmt.Errorf("no document matching %q in %s", input, scopeLabel)
 	}
 	if len(matches) > 1 {
-		return docRef{}, fmt.Errorf("ambiguous %q in %q (%d matches)", input, coll.Name, len(matches))
+		cands := make([]string, 0, len(matches))
+		for i, m := range matches {
+			if i >= 6 {
+				cands = append(cands, "…")
+				break
+			}
+			id := m.ID
+			if len(id) > 8 {
+				id = id[:8]
+			}
+			cands = append(cands, fmt.Sprintf("%q `%s`", m.Title, id))
+		}
+		return docRef{}, fmt.Errorf("ambiguous %q (%d matches): %s — narrow with in=<notebook> or pass the id",
+			input, len(matches), strings.Join(cands, ", "))
 	}
-	matches[0].CollectionID = coll.ID
+	if scopedCollID != "" {
+		matches[0].CollectionID = scopedCollID
+	}
 	return matches[0], nil
 }
 
