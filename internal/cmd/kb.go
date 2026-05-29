@@ -292,7 +292,13 @@ func resolveCollection(ctx context.Context, input string) (collRef, error) {
 				return c, nil
 			}
 		}
-		return collRef{ID: input}, nil
+		// Trust a full uuid the cache didn't have; but a short/partial id with
+		// no notebook prefix-match is NOT a collection — error so callers can
+		// fall through to document resolution instead of mis-claiming it.
+		if uuidRE.MatchString(input) {
+			return collRef{ID: input}, nil
+		}
+		return collRef{}, fmt.Errorf("no notebook matching %q", input)
 	}
 	lower := strings.ToLower(input)
 	var matches []collRef
@@ -349,7 +355,13 @@ func listDocuments(ctx context.Context, collectionID string) ([]docRef, error) {
 // `mm kb rm "<title>"` work without forcing in=<notebook>. Pass in= to scope
 // the lookup to one notebook (faster, disambiguates same-named docs).
 func resolveDocument(ctx context.Context, input, scope string) (docRef, error) {
-	if isID(input) {
+	if strings.TrimSpace(input) == "" {
+		return docRef{}, fmt.Errorf("no document name or id given")
+	}
+	// A *full* UUID goes straight to the server. A short/partial id (the
+	// 8-char form the CLI prints) is NOT a valid uuid — sending it raw 500s
+	// the server, so it's prefix-resolved against the doc list below.
+	if uuidRE.MatchString(input) {
 		s, _, err := kbSingle(ctx, "documents", "get", map[string]any{"id": input})
 		if err != nil {
 			return docRef{}, err
@@ -388,6 +400,22 @@ func resolveDocument(ctx context.Context, input, scope string) (docRef, error) {
 
 	lower := strings.ToLower(input)
 	var matches []docRef
+	// Short/partial id (hex) → prefix-match the displayed 8-char ids.
+	if shortUUIDRE.MatchString(input) {
+		for _, d := range docs {
+			if strings.HasPrefix(strings.ToLower(d.ID), lower) {
+				matches = append(matches, d)
+			}
+		}
+		if len(matches) == 1 {
+			if scopedCollID != "" {
+				matches[0].CollectionID = scopedCollID
+			}
+			return matches[0], nil
+		}
+		// 0 or many id-prefix hits → fall through to title matching.
+		matches = nil
+	}
 	for _, d := range docs {
 		if d.Title == input {
 			matches = append(matches, d)
@@ -791,7 +819,8 @@ func newKbPeekCmd() *cobra.Command {
 				return strings.TrimRight(b.String(), "\n"), raw, true
 			}
 
-			if isID(target) {
+			// Full uuid → could be either; try collection then document.
+			if uuidRE.MatchString(target) {
 				if md, raw, ok := peekColl(target, ""); ok {
 					return emit(cmd, raw, md)
 				}
@@ -800,13 +829,22 @@ func newKbPeekCmd() *cobra.Command {
 				}
 				return fmt.Errorf("%s not found as collection or document", target)
 			}
-			coll, err := resolveCollection(ctx, target)
+			// Notebook name → collection peek.
+			if coll, err := resolveCollection(ctx, target); err == nil {
+				md, raw, ok := peekColl(coll.ID, coll.Name)
+				if !ok {
+					return fmt.Errorf("collection %q exists but could not load", target)
+				}
+				return emit(cmd, raw, md)
+			}
+			// Otherwise a document — by title or short id (resolved to a full id).
+			doc, err := resolveDocument(ctx, target, "")
 			if err != nil {
 				return err
 			}
-			md, raw, ok := peekColl(coll.ID, coll.Name)
+			md, raw, ok := peekDoc(doc.ID)
 			if !ok {
-				return fmt.Errorf("collection %q exists but could not load", target)
+				return fmt.Errorf("document %q could not load", target)
 			}
 			return emit(cmd, raw, md)
 		},
@@ -824,15 +862,11 @@ func newKbReadCmd() *cobra.Command {
 			if len(pos) == 0 {
 				return fmt.Errorf("usage: mm kb read <doc> [path=…] [inline=true] [in=<nb>]")
 			}
-			target := pos[0]
-			docID, title := target, ""
-			if !isID(target) {
-				d, err := resolveDocument(ctx, target, kvStr(kv, "in"))
-				if err != nil {
-					return err
-				}
-				docID, title = d.ID, d.Title
+			d, err := resolveDocument(ctx, pos[0], kvStr(kv, "in"))
+			if err != nil {
+				return err
 			}
+			docID, title := d.ID, d.Title
 			s, raw, err := kbSingle(ctx, "documents", "get", map[string]any{"id": docID})
 			if err != nil {
 				return err
@@ -876,15 +910,11 @@ func newKbRelatedCmd() *cobra.Command {
 			if len(pos) == 0 {
 				return fmt.Errorf("usage: mm kb related <doc> [in=<nb>] [scope=<nb>] [limit] [minScore]")
 			}
-			target := pos[0]
-			docID := target
-			if !isID(target) {
-				d, err := resolveDocument(ctx, target, kvStr(kv, "in"))
-				if err != nil {
-					return err
-				}
-				docID = d.ID
+			d, err := resolveDocument(ctx, pos[0], kvStr(kv, "in"))
+			if err != nil {
+				return err
 			}
+			docID := d.ID
 			payload := map[string]any{"id": docID, "limit": kvInt(kv, "limit", 10)}
 			if ms, ok := kvFloat(kv, "minScore"); ok {
 				payload["minScore"] = ms
@@ -1153,20 +1183,29 @@ func newKbRenameCmd() *cobra.Command {
 			newName := strings.Join(pos[1:], " ")
 			scope := kvStr(kv, "in")
 
-			// Notebook unless scope (in=) forces document resolution.
-			if scope == "" && !isID(target) {
-				coll, err := resolveCollection(ctx, target)
+			// Bare name or short id: try a notebook first, then fall back to a
+			// document anywhere (resolveDocument prefix-resolves short ids), so
+			// `mm kb rename "<doc title>"` / `rename <short-id>` work without in=.
+			if scope == "" && !uuidRE.MatchString(target) {
+				if coll, err := resolveCollection(ctx, target); err == nil {
+					_, raw, uerr := kbSingle(ctx, "collections", "update", map[string]any{"id": coll.ID, "name": newName})
+					if uerr != nil {
+						return uerr
+					}
+					return emit(cmd, raw, fmt.Sprintf("Renamed notebook → %q", newName))
+				}
+				doc, err := resolveDocument(ctx, target, "")
 				if err != nil {
 					return err
 				}
-				_, raw, err := kbSingle(ctx, "collections", "update", map[string]any{"id": coll.ID, "name": newName})
-				if err != nil {
-					return err
+				_, raw, uerr := kbSingle(ctx, "documents", "update", map[string]any{"id": doc.ID, "title": newName})
+				if uerr != nil {
+					return uerr
 				}
-				return emit(cmd, raw, fmt.Sprintf("Renamed notebook → %q", newName))
+				return emit(cmd, raw, fmt.Sprintf("Renamed document → %q", newName))
 			}
-			if isID(target) && scope == "" {
-				// Ambiguous id — try collection, fall back to document.
+			if uuidRE.MatchString(target) && scope == "" {
+				// Full uuid, ambiguous — try collection, fall back to document.
 				if _, raw, err := kbSingle(ctx, "collections", "update", map[string]any{"id": target, "name": newName}); err == nil {
 					return emit(cmd, raw, fmt.Sprintf("Renamed notebook → %q", newName))
 				}
@@ -1284,14 +1323,11 @@ func newKbRmCmd() *cobra.Command {
 			if len(pos) == 0 {
 				return fmt.Errorf("usage: mm kb rm <doc> [in=<nb>]")
 			}
-			docID := pos[0]
-			if !isID(docID) {
-				d, err := resolveDocument(ctx, pos[0], kvStr(kv, "in"))
-				if err != nil {
-					return err
-				}
-				docID = d.ID
+			d, err := resolveDocument(ctx, pos[0], kvStr(kv, "in"))
+			if err != nil {
+				return err
 			}
+			docID := d.ID
 			_, raw, err := kbSingle(ctx, "documents", "remove", map[string]any{"id": docID})
 			if err != nil {
 				return err
