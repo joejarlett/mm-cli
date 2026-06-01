@@ -39,6 +39,17 @@ func newAppCmd(slug string) *cobra.Command {
 	root := &cobra.Command{
 		Use:   slug + " [verb] [args...]",
 		Short: "Talk to the " + slug + " app (ask / find / do / <feature> <action>)",
+		Long: "Talk to the " + slug + " app.\n\n" +
+			"Verbs:\n" +
+			"  mm " + slug + "                          Show the app's Agent Card (capabilities + tools)\n" +
+			"  mm " + slug + " ask \"<question>\"         Ask the app's agent (agent.chat) — prose answer\n" +
+			"  mm " + slug + " find \"<query>\"           Search the app (agent.search, where supported)\n" +
+			"  mm " + slug + " do <tool> [k=v…]         Invoke a Card-declared tool\n" +
+			"  mm " + slug + " use [<name|id>]          Show instances, or pin the default one\n" +
+			"  mm " + slug + " <feature> <action> [k=v…]   Raw call (the escape hatch)\n\n" +
+			"Instance-scoped apps resolve the target automatically (sole instance,\n" +
+			"else the pinned default from `use`); override with --instance.\n" +
+			"Add --json for structured output.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppDispatch(cmd, slug, args)
 		},

@@ -54,41 +54,70 @@ func newRootCmd() *cobra.Command {
 
 	root.PersistentFlags().Bool("json", false, "Output as JSON")
 
-	// Phase 1 subcommands.
-	root.AddCommand(cmd.NewLoginCmd())
-	root.AddCommand(cmd.NewLogoutCmd())
-	root.AddCommand(cmd.NewWhoamiCmd())
-	root.AddCommand(cmd.NewStatusCmd())
+	// Help is grouped by intent, not by build phase — an agent/user scans for
+	// "what do I want to do", not implementation history. Ungrouped commands
+	// (help, completion) fall under Cobra's "Additional Commands".
+	const (
+		grpApps    = "apps"
+		grpGoogle  = "google"
+		grpAgents  = "agents"
+		grpDiscing = "discover"
+		grpAccount = "account"
+		grpSystem  = "system"
+	)
+	root.AddGroup(
+		&cobra.Group{ID: grpApps, Title: "Apps (ask / find / do / <feature> <action>):"},
+		&cobra.Group{ID: grpGoogle, Title: "Google Workspace:"},
+		&cobra.Group{ID: grpAgents, Title: "Agents & automation:"},
+		&cobra.Group{ID: grpDiscing, Title: "Discovery:"},
+		&cobra.Group{ID: grpAccount, Title: "Account:"},
+		&cobra.Group{ID: grpSystem, Title: "CLI & admin:"},
+	)
 
-	// Phase 2 subcommands.
-	root.AddCommand(cmd.NewCalendarCmd())
-	root.AddCommand(cmd.NewTasksCmd())
-	root.AddCommand(cmd.NewDriveCmd())
-	root.AddCommand(cmd.NewEmailCmd())
-	root.AddCommand(cmd.NewSttCmd())
-	root.AddCommand(cmd.NewTtsCmd())
-
-	// Phase 3 subcommands.
-	root.AddCommand(cmd.NewDeskCmd())
-	root.AddCommand(cmd.NewHubCmd())
-	root.AddCommand(cmd.NewProjectCmd())
-
-	// Phase 4 subcommands.
-	root.AddCommand(cmd.NewCardsCmd())
-	root.AddCommand(cmd.NewManifestCmd())
-	root.AddCommand(cmd.NewKbCmd())
-	root.AddCommand(cmd.NewCrmCmd())
-	for _, c := range cmd.NewAppCommands() {
+	// add registers a command under a help group.
+	add := func(group string, c *cobra.Command) {
+		c.GroupID = group
 		root.AddCommand(c)
 	}
-	root.AddCommand(admin.NewAdminCmd())
 
-	// Phase 5 subcommands.
-	root.AddCommand(cmd.NewUpdateCmd())
-	root.AddCommand(cmd.NewVersionCmd())
-	root.AddCommand(cmd.NewFeedbackCmd())
-	root.AddCommand(cmd.NewCaptureCmd())
-	root.AddCommand(cmd.NewRunCmd())
+	// Apps — the Meta-Me apps reachable over the v2 contract. kb/crm have
+	// bespoke verb wrappers; analytics/finances/gn use the universal verbs.
+	add(grpApps, cmd.NewKbCmd())
+	add(grpApps, cmd.NewCrmCmd())
+	for _, c := range cmd.NewAppCommands() {
+		add(grpApps, c)
+	}
+
+	// Google Workspace — operate on the user's linked Google accounts.
+	add(grpGoogle, cmd.NewEmailCmd())
+	add(grpGoogle, cmd.NewCalendarCmd())
+	add(grpGoogle, cmd.NewDriveCmd())
+	add(grpGoogle, cmd.NewTasksCmd())
+
+	// Agents & automation — delegate work / drive the local agent.
+	add(grpAgents, cmd.NewRunCmd())
+	add(grpAgents, cmd.NewDeskCmd())
+	add(grpAgents, cmd.NewHubCmd())
+	add(grpAgents, cmd.NewCaptureCmd())
+	add(grpAgents, cmd.NewProjectCmd())
+
+	// Discovery — find what apps and surfaces exist.
+	add(grpDiscing, cmd.NewCardsCmd())
+	add(grpDiscing, cmd.NewManifestCmd())
+
+	// Account — who am I, what can I reach.
+	add(grpAccount, cmd.NewLoginCmd())
+	add(grpAccount, cmd.NewLogoutCmd())
+	add(grpAccount, cmd.NewWhoamiCmd())
+	add(grpAccount, cmd.NewStatusCmd())
+
+	// CLI & admin — manage the tool itself + privileged hub ops.
+	add(grpSystem, admin.NewAdminCmd())
+	add(grpSystem, cmd.NewFeedbackCmd())
+	add(grpSystem, cmd.NewSttCmd())
+	add(grpSystem, cmd.NewTtsCmd())
+	add(grpSystem, cmd.NewUpdateCmd())
+	add(grpSystem, cmd.NewVersionCmd())
 
 	return root
 }
