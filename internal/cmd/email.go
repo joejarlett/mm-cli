@@ -15,7 +15,18 @@ import (
 
 // NewEmailCmd builds the `mm email` tree.
 func NewEmailCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "email", Short: "Gmail inbox + platform email log"}
+	cmd := &cobra.Command{
+		Use:   "email",
+		Short: "Email — search your Gmail inbox; send/draft real Gmail with --from",
+		Long: "Email across two surfaces:\n" +
+			"  • Gmail (your linked account) — search/read the inbox; send/draft/trash\n" +
+			"    real mail with --from <gmail-address>.\n" +
+			"  • Platform log — outbound mail the platform sent (send/draft without\n" +
+			"    --from, list, get, resend). Admin view of system mail.",
+		Example: "  mm email search \"from:nora after:2026/05/01\"\n" +
+			"  mm email send --from joe.jarlett@gmail.com --to x@y.com --subject Hi --body \"...\"\n" +
+			"  mm email trash <gmail-message-id>",
+	}
 	cmd.AddCommand(
 		newEmailListCmd(), newEmailGetCmd(), newEmailSendCmd(),
 		newEmailDraftCmd(), newEmailResendCmd(), newEmailSearchCmd(), newEmailReadCmd(),

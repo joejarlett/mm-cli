@@ -53,7 +53,7 @@ var (
 func NewRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run [spec]",
-		Short: "delegate tasks to Hermes and review results",
+		Short: "Delegate a task to a background Hermes agent, then review the result",
 		Long: `mm run — delegate tasks to Hermes and review results
 
 Subcommands:

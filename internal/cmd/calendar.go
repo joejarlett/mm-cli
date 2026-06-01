@@ -20,9 +20,12 @@ import (
 func NewCalendarCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "calendar",
-		Short: "Google Calendar — agenda + quick create",
-		Long:  "Default: next 7 days agenda. See `mm calendar new --help` to create events.",
-		Args:  cobra.NoArgs,
+		Short: "Calendar — agenda, create, get, delete (Google Calendar)",
+		Long:  "Default (no subcommand): the next 7 days' agenda. Subcommands: list, new, get, delete.",
+		Example: "  mm calendar --days 3\n" +
+			"  mm calendar new --title \"Dentist\" --when \"next tue 14:00\"\n" +
+			"  mm calendar get <event-id>",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runCalendarList(cmd, args)
 		},

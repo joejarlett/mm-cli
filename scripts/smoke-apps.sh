@@ -30,7 +30,8 @@ expect() {
 	if printf '%s' "$out" | grep -qiE '\b(401|unauthorized|requires .* auth)\b'; then
 		bad "$desc — auth failure ($(printf '%s' "$out" | head -1))"; return
 	fi
-	if [ -n "$want" ] && ! printf '%s' "$out" | grep -qiF "$want"; then
+	# `-e --` so a pattern starting with '-' (e.g. --from) isn't parsed as a flag.
+	if [ -n "$want" ] && ! printf '%s' "$out" | grep -qiF -e "$want"; then
 		bad "$desc — missing '$want' (got: $(printf '%s' "$out" | head -1))"; return
 	fi
 	ok "$desc"
@@ -55,6 +56,23 @@ expect "crm help lists surface"  "surface"  -- $MM crm --help
 expect "crm use lists instances" "instance" -- $MM crm use
 expect "kb help lists find"      "find"     -- $MM kb --help
 expect "kb actions (surface)"    "RPC surface" -- $MM kb actions
+
+note "Help quality (house style — keeps the CLI self-documenting)"
+# Top-level help is grouped by intent, carries the mental model, and points
+# at discovery. These assertions encode the house style so an edit can't
+# silently flatten it back to an alphabetical wall.
+expect "top help has Apps group"        "Apps ("        -- $MM --help
+expect "top help has Google group"      "Google Workspace" -- $MM --help
+expect "top help teaches typed-vs-ask"  "Typed verbs"   -- $MM --help
+expect "top help points to cards"       "mm cards"      -- $MM --help
+# Each app's Short is its domain gloss (em-dash), and help carries an example.
+for slug in analytics crm finances gn kb; do
+	expect "$slug Short is a gloss (—)" "—" -- $MM "$slug" --help
+done
+expect "kb help has an Example"   "mm kb tree"             -- $MM kb --help
+expect "kb help lists nav verbs"  "tree"                   -- $MM kb --help
+expect "email help shows --from"  "--from"                 -- $MM email --help
+expect "calendar help example"    "mm calendar"            -- $MM calendar --help
 
 note "Auth + instance + render (one end-to-end agent call)"
 expect "finances ask returns prose" "£" -- $MM finances ask "what is my net worth, one number"

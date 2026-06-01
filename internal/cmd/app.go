@@ -36,10 +36,17 @@ func NewAppCommands() []*cobra.Command {
 }
 
 func newAppCmd(slug string) *cobra.Command {
+	// Short is the registry's domain gloss (what the app is about). The verb
+	// hint lives in the `mm --help` group header, not here, so the line stays
+	// scannable and parallel with the other apps.
+	short := slug
+	if e, ok := apps.Registry[slug]; ok && e.Description != "" {
+		short = e.Description
+	}
 	root := &cobra.Command{
 		Use:   slug + " [verb] [args...]",
-		Short: "Talk to the " + slug + " app (ask / find / do / <feature> <action>)",
-		Long: "Talk to the " + slug + " app.\n\n" +
+		Short: short,
+		Long: short + "\n\n" +
 			"Verbs:\n" +
 			"  mm " + slug + "                          Show the app's Agent Card (capabilities + tools)\n" +
 			"  mm " + slug + " ask \"<question>\"         Ask the app's agent (agent.chat) — prose answer\n" +
@@ -50,6 +57,9 @@ func newAppCmd(slug string) *cobra.Command {
 			"Instance-scoped apps resolve the target automatically (sole instance,\n" +
 			"else the pinned default from `use`); override with --instance.\n" +
 			"Add --json for structured output.",
+		Example: "  mm " + slug + " ask \"summarise what's here\"\n" +
+			"  mm " + slug + " find \"<query>\"\n" +
+			"  mm " + slug + " use",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runAppDispatch(cmd, slug, args)
 		},

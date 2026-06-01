@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"mm-cli/internal/apps"
 )
 
 // NewCrmCmd builds `mm crm …`. Bespoke verbs (surface/contacts/log/…) ride
@@ -13,7 +15,7 @@ import (
 // rendering work uniformly). CRM is multi-instance, so `mm crm use <name>`
 // pins which one `ask` targets.
 func NewCrmCmd() *cobra.Command {
-	c := &cobra.Command{Use: "crm", Short: "CRM"}
+	c := &cobra.Command{Use: "crm", Short: apps.Registry["crm"].Description}
 	c.AddCommand(
 		newCrmSurfaceCmd(), newCrmContactsCmd(), newCrmProjectsCmd(),
 		newCrmLogCmd(), newCrmContextCmd(), newCrmPeekCmd(),

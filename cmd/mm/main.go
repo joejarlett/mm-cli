@@ -42,9 +42,20 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:           "mm",
-		Short:         "Meta-Me CLI",
-		Long:          "mm — interact with Meta-Me apps from the terminal.",
+		Use:   "mm",
+		Short: "Meta-Me CLI — one terminal for every Meta-Me app",
+		Long: `mm — one terminal for every Meta-Me app.
+
+Two ways to work with an app, by how precise your intent is:
+
+  • Typed verbs (precise, composable, cheap) — when you know what you want:
+      mm kb find "..."   mm kb peek <doc>   mm finances accounts list
+  • ask (fuzzy, conversational) — hand an open question to the app's agent:
+      mm finances ask "how's my spending trending?"
+
+Prefer typed verbs when chaining steps; reach for ask when the question is
+open-ended. Names work anywhere an id is taken; add --json for structured
+output. Start with 'mm cards' to see every app, or 'mm <app> --help'.`,
 		Version:       version.String(),
 		SilenceUsage:  true, // don't dump usage on every RunE error
 		SilenceErrors: true, // we handle stderr ourselves in main()

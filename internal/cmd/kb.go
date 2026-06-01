@@ -24,7 +24,21 @@ import (
 // anywhere) and a raw `kb <feature> <action> [k=v…]` passthrough. Read verbs
 // render markdown by default; --json returns the structured payload.
 func NewKbCmd() *cobra.Command {
-	c := &cobra.Command{Use: "kb", Short: "Knowledge Base"}
+	c := &cobra.Command{
+		Use:   "kb",
+		Short: apps.Registry["kb"].Description,
+		Long: apps.Registry["kb"].Description + "\n\n" +
+			"Names resolve to ids anywhere a <doc>/<notebook> is taken. Read verbs are\n" +
+			"markdown by default; add --json for structured output.\n\n" +
+			"Navigate:  tree · peek · read · find · related · tagged · mentions · digest · surface\n" +
+			"Change:    add · rm · rename · move · tag · untag · label · describe\n" +
+			"Discover:  collections · research · actions · status\n" +
+			"Raw:       kb <feature> <action> [k=v…]   (any RPC action; see `kb actions`)",
+		Example: "  mm kb tree\n" +
+			"  mm kb find \"neurodiversity in education\"\n" +
+			"  mm kb peek \"Joe-Inc\"\n" +
+			"  mm kb add \"Joe-Inc\" url=https://example.com/article",
+	}
 	c.AddCommand(
 		// Navigation
 		newKbFindCmd(), newKbTreeCmd(), newKbPeekCmd(), newKbReadCmd(),
