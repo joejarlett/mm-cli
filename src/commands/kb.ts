@@ -27,8 +27,12 @@ Feature-action dispatch (any feature.action known to the KB API):
 
 Common examples:
   mm kb research list collectionId=<uuid>
-  mm kb research create collectionId=<uuid> prompt="..." [execute=true]
+  mm kb research create collectionId=<uuid> prompt="..." [mode=auto|web|scholarly|both] [execute=false]
   mm kb research get id=<uuid>
+    # mode (default auto): a router picks per-prompt. scholarly = real papers
+    #   with verifiable DOIs (OpenAlex/Semantic Scholar/Europe PMC) + Scite
+    #   robustness check; web = Gemini deep-research; both = combine.
+    # runs auto-execute now; pass execute=false to stage a draft instead.
   mm kb documents search query="..." [collectionId=<uuid>]
   mm kb documents create collectionId=<uuid> url="..."
   mm kb jobs list
