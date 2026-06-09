@@ -1673,6 +1673,19 @@ func newKbResearchCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "research <list|create|get|execute|…> …",
 		Short: "Research runs",
+		Long: "Research runs — async corpus/web research.\n\n" +
+			"  list   collectionId=<uuid> | <notebook>\n" +
+			"  get    id=<uuid>\n" +
+			"  create collectionId=<uuid> prompt=\"…\" [mode=auto|web|scholarly|both] [execute=false]\n" +
+			"  execute id=<uuid>\n\n" +
+			"mode (default auto): a flash router picks the engine per prompt.\n" +
+			"  scholarly = corpus-grounded — real papers with verifiable DOIs (OpenAlex +\n" +
+			"              Semantic Scholar + Europe PMC), OA full-text via mm-convert, a\n" +
+			"              closed-set DOI validator, and a Scite robustness pass\n" +
+			"              (well-supported / contested / retracted) on each cited finding.\n" +
+			"  web       = Gemini deep-research (general web synthesis).\n" +
+			"  both      = run both and combine.\n" +
+			"Runs auto-execute; pass execute=false to stage a draft for review.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
