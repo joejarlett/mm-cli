@@ -331,44 +331,12 @@ func surfaceLine(it wire.SurfaceItem) string {
 
 // ─── desk pull-mode (local agent) ───────────────────────────────────────
 
-// deskOverviewLocal serves `mm overview desk` from the local agent — the
-// desk catalogue is its registered projects (the hub can't reach the agent).
+// deskOverviewLocal serves `mm overview desk` from the local agent — the desk
+// catalogue is its registered projects (the hub can't reach the agent). Shares
+// the single project-list renderer with `mm desk projects` / `mm project list`.
 func deskOverviewLocal(cmd *cobra.Command) error {
 	node, _ := cmd.Flags().GetString("node")
-	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
-	client := mmhttp.New()
-	resp, err := client.AgentFetch(cmd.Context(), node, "/api/projects", nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("GET /api/projects %d: %s", resp.StatusCode, truncString(string(body), 200))
-	}
-	if wantJSON {
-		fmt.Println(string(body))
-		return nil
-	}
-	var data wire.AgentProjectsListResp
-	if err := json.Unmarshal(body, &data); err != nil {
-		return err
-	}
-	if len(data.Projects) == 0 {
-		fmt.Println("_No projects._")
-		return nil
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "## Projects (%d)\n\n", len(data.Projects))
-	for _, p := range data.Projects {
-		count := 0
-		if p.ThreadCount != nil {
-			count = *p.ThreadCount
-		}
-		fmt.Fprintf(&b, "- **%s** — %d thread%s `%s`\n", p.Label, count, plural(count), p.RootPath)
-	}
-	fmt.Print(b.String())
-	return nil
+	return listProjects(cmd, node)
 }
 
 // deskSurfaceLocal serves `mm surface desk` from the local agent's event log

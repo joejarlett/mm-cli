@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -17,18 +18,40 @@ import (
 	"mm-cli/internal/wire"
 )
 
-// NewDeskCmd builds the `mm desk` tree (`mm chat` kept as alias).
+// NewDeskCmd builds the `mm desk` tree (`mm chat` kept as alias). Bare
+// `mm desk` (no subcommand) prints the activity overview — what you've been
+// working on lately and what's still open — the conversational analogue of
+// `mm project overview`.
 func NewDeskCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "desk",
-		Short: "Local agent threads (list/show/search/send/nodes/models)",
+		Short: "Recent-activity overview (or list/show/search/send/refresh/nodes/models)",
+		Long: "Bare `mm desk` prints a reflective overview of recent agent activity —\n" +
+			"open loops first, then salient events grouped by project. Events are\n" +
+			"distilled from threads by a scheduled sweep on the agent; `mm desk refresh`\n" +
+			"runs that sweep now.",
+		Args: cobra.NoArgs,
+		RunE: runDeskOverview,
 	}
 	chatFlags(cmd, false)
+	cmd.Flags().Int("days", 0, "Activity window in days (default 7)")
 	cmd.AddCommand(
 		newChatListCmd(), newChatShowCmd(), newChatSearchCmd(),
 		newChatProjectsCmd(), newChatSendCmd(), newChatNodesCmd(), newChatModelsCmd(),
+		newDeskRefreshCmd(),
 	)
 	return cmd
+}
+
+func newDeskRefreshCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "refresh",
+		Short: "Sweep recent threads into the event log now",
+		Args:  cobra.NoArgs,
+		RunE:  runDeskRefresh,
+	}
+	c.Flags().String("node", "", "Target a remote agent by name")
+	return c
 }
 
 func chatFlags(c *cobra.Command, withSendOnly bool) {
@@ -279,41 +302,7 @@ func runChatSearch(cmd *cobra.Command, args []string) error {
 
 func runChatProjects(cmd *cobra.Command, _ []string) error {
 	node, _ := cmd.Flags().GetString("node")
-	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
-	client := mmhttp.New()
-	resp, err := client.AgentFetch(cmd.Context(), node, "/api/projects", nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("GET /api/projects %d", resp.StatusCode)
-	}
-	var data wire.AgentProjectsListResp
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return err
-	}
-	if wantJSON {
-		out, _ := json.MarshalIndent(data.Projects, "", "  ")
-		fmt.Println(string(out))
-		return nil
-	}
-	if len(data.Projects) == 0 {
-		fmt.Println("(no projects)")
-		return nil
-	}
-	for _, p := range data.Projects {
-		id6 := p.ID
-		if len(id6) > 6 {
-			id6 = id6[:6]
-		}
-		count := 0
-		if p.ThreadCount != nil {
-			count = *p.ThreadCount
-		}
-		fmt.Printf("%s  %3dthr  %s  %s\n", id6, count, padRight(p.Label, 24), p.RootPath)
-	}
-	return nil
+	return listProjects(cmd, node)
 }
 
 // ─── nodes (hub instance.list) ─────────────────────────────────────────
@@ -446,4 +435,169 @@ func relTimeMs(ms int64) string {
 		return fmt.Sprintf("%dh ago", h)
 	}
 	return fmt.Sprintf("%dd ago", h/24)
+}
+
+// ─── overview (bare `mm desk`) ──────────────────────────────────────────
+
+func runDeskOverview(cmd *cobra.Command, _ []string) error {
+	node, _ := cmd.Flags().GetString("node")
+	project, _ := cmd.Flags().GetString("project")
+	days, _ := cmd.Flags().GetInt("days")
+	limit, _ := cmd.Flags().GetInt("limit")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	q := url.Values{}
+	if days > 0 {
+		q.Set("days", strconv.Itoa(days))
+	}
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+	}
+	if project != "" {
+		q.Set("project_id", project)
+	}
+	path := "/api/events/overview"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+
+	client := mmhttp.New()
+	resp, err := client.AgentFetch(cmd.Context(), node, path, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode == 404 && project != "" {
+		return fmt.Errorf("project '%s' not found. %s", project, strings.TrimSpace(string(body)))
+	}
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("GET %s %d: %s", path, resp.StatusCode, truncString(string(body), 200))
+	}
+	if wantJSON {
+		fmt.Println(string(body))
+		return nil
+	}
+	var data wire.AgentDeskOverview
+	if err := json.Unmarshal(body, &data); err != nil {
+		return err
+	}
+	renderDeskOverview(data)
+	return nil
+}
+
+// kindGlyph maps an event kind to a one-rune marker for the overview render.
+func kindGlyph(kind string) string {
+	switch kind {
+	case "artifact", "resolved":
+		return "✓"
+	case "decision":
+		return "◆"
+	case "question":
+		return "?"
+	case "open_loop":
+		return "⏳"
+	default: // fact, unknown
+		return "•"
+	}
+}
+
+// bucketLabel sorts an event ts into today / this week / earlier.
+func bucketLabel(ms int64) string {
+	age := time.Since(time.UnixMilli(ms))
+	switch {
+	case age < 24*time.Hour:
+		return "today"
+	case age < 7*24*time.Hour:
+		return "this week"
+	default:
+		return "earlier"
+	}
+}
+
+func renderDeskOverview(d wire.AgentDeskOverview) {
+	fmt.Printf("Desk — last %d days\n", d.WindowDays)
+
+	if len(d.OpenLoops) > 0 {
+		fmt.Printf("\n⏳ Open loops\n")
+		for _, e := range d.OpenLoops {
+			fmt.Printf("  • %s%s\n", e.Summary, deskEventTag(e))
+		}
+	}
+
+	if len(d.Groups) == 0 {
+		if len(d.OpenLoops) == 0 {
+			fmt.Println("\n(no activity yet — run `mm desk refresh` to sweep recent threads)")
+		}
+		return
+	}
+
+	buckets := []string{"today", "this week", "earlier"}
+	for _, g := range d.Groups {
+		fmt.Printf("\n%s  (%d event%s)\n", g.Label, g.Count, plural(g.Count))
+		// Group events by recency bucket, preserving newest-first order.
+		seen := map[string][]wire.AgentDeskEvent{}
+		for _, e := range g.Events {
+			b := bucketLabel(e.TS)
+			seen[b] = append(seen[b], e)
+		}
+		for _, b := range buckets {
+			evs := seen[b]
+			if len(evs) == 0 {
+				continue
+			}
+			fmt.Printf("  %s\n", padRight(b, 9))
+			for _, e := range evs {
+				fmt.Printf("    %s %s%s\n", kindGlyph(e.Kind), e.Summary, deskRefsSuffix(e))
+			}
+		}
+	}
+}
+
+// deskEventTag renders the trailing "[thread · 2d ago]" annotation for an
+// open-loop line, using the thread title (trimmed) and relative time.
+func deskEventTag(e wire.AgentDeskEvent) string {
+	title := truncString(strings.Join(strings.Fields(e.ThreadTitle), " "), 32)
+	return fmt.Sprintf("   [%s · %s]", title, relTimeMs(e.TS))
+}
+
+// deskRefsSuffix appends concrete refs (file paths, ids) when present.
+func deskRefsSuffix(e wire.AgentDeskEvent) string {
+	if len(e.Refs) == 0 {
+		return ""
+	}
+	return "  → " + strings.Join(e.Refs, ", ")
+}
+
+// ─── refresh ────────────────────────────────────────────────────────────
+
+func runDeskRefresh(cmd *cobra.Command, _ []string) error {
+	node, _ := cmd.Flags().GetString("node")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	client := mmhttp.New()
+	resp, err := client.AgentFetch(cmd.Context(), node, "/api/events/refresh", &mmhttp.AgentReq{
+		Method:      "POST",
+		Body:        []byte("{}"),
+		ContentType: "application/json",
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("POST /api/events/refresh %d: %s", resp.StatusCode, truncString(string(body), 200))
+	}
+	if wantJSON {
+		fmt.Println(string(body))
+		return nil
+	}
+	var data wire.AgentDeskRefreshResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "swept %d thread%s — %d new event%s, %d resolved\n",
+		data.SweptThreads, plural(data.SweptThreads), data.NewEvents, plural(data.NewEvents), data.Resolved)
+	return nil
 }

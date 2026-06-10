@@ -67,29 +67,45 @@ func newProjectRebuildCmd() *cobra.Command {
 // ─── List ──────────────────────────────────────────────────────────────
 
 func runProjectList(cmd *cobra.Command, _ []string) error {
+	return listProjects(cmd, "")
+}
+
+// listProjects is the single implementation of the desk project catalogue —
+// the registered projects with thread counts. Shared by `mm project list`,
+// `mm desk projects`, and `mm overview desk` so the listing renders one way
+// everywhere. node selects a remote agent ("" = local).
+func listProjects(cmd *cobra.Command, node string) error {
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 	client := mmhttp.New()
-	resp, err := client.AgentFetch(cmd.Context(), "", "/api/projects", nil)
+	resp, err := client.AgentFetch(cmd.Context(), node, "/api/projects", nil)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("GET /api/projects %d", resp.StatusCode)
-	}
-	var data wire.AgentProjectsListResp
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return err
+		return fmt.Errorf("GET /api/projects %d: %s", resp.StatusCode, truncString(string(body), 200))
 	}
 	if wantJSON {
-		out, _ := json.MarshalIndent(data.Projects, "", "  ")
-		fmt.Println(string(out))
+		fmt.Println(string(body))
 		return nil
 	}
+	var data wire.AgentProjectsListResp
+	if err := json.Unmarshal(body, &data); err != nil {
+		return err
+	}
+	fmt.Print(renderProjects(data))
+	return nil
+}
+
+// renderProjects is the canonical markdown for the project catalogue, matching
+// the `mm overview <app>` house style (count header + markdown bullets).
+func renderProjects(data wire.AgentProjectsListResp) string {
 	if len(data.Projects) == 0 {
-		fmt.Println("(no projects)")
-		return nil
+		return "_No projects._\n"
 	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Projects (%d)\n\n", len(data.Projects))
 	for _, p := range data.Projects {
 		id6 := p.ID
 		if len(id6) > 6 {
@@ -99,9 +115,9 @@ func runProjectList(cmd *cobra.Command, _ []string) error {
 		if p.ThreadCount != nil {
 			count = *p.ThreadCount
 		}
-		fmt.Printf("- **%s** (`%s`) | %d threads | `%s`\n", p.Label, id6, count, p.RootPath)
+		fmt.Fprintf(&b, "- **%s** (`%s`) — %d thread%s · `%s`\n", p.Label, id6, count, plural(count), p.RootPath)
 	}
-	return nil
+	return b.String()
 }
 
 // ─── Overview / Detail / Rebuild — pass-through to agent ───────────────
