@@ -686,6 +686,11 @@ func newKbTreeCmd() *cobra.Command {
 				for _, r := range rows {
 					fmt.Fprintf(&b, "- **%s** — %d docs `%s`\n", r.Name, r.Count, r.ID)
 				}
+				// kb tree spans every KB instance the session can see; the
+				// per-instance catalogue (matching `mm overview <app>`) is
+				// `mm overview kb`, scoped to the default instance — hence the
+				// higher count here. Flag it so the difference isn't a mystery.
+				b.WriteString("\n\n_Across all your KB instances. `mm overview kb` shows just the default instance._")
 				return emit(cmd, mustJSON(rows), strings.TrimRight(b.String(), "\n"))
 			}
 			coll, err := resolveCollection(ctx, target)
