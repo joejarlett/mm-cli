@@ -36,7 +36,7 @@ func TestRenderOverview_ScopedDropsHeader(t *testing.T) {
 	if strings.Contains(got, "`abc`") {
 		t.Errorf("raw ids should not appear in the human view (they live in --json), got:\n%s", got)
 	}
-	for _, want := range []string{"## Notebooks (2)", "**Joe-Inc** (12)", "**Neurodiversity** — research (3)"} {
+	for _, want := range []string{"## Notebooks (2)", "Joe-Inc (12)", "Neurodiversity — research (3)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("overview missing %q in:\n%s", want, got)
 		}
@@ -83,9 +83,10 @@ func TestRenderOverview_Empty(t *testing.T) {
 }
 
 func TestOverviewLine_NoRawIDAndCountSemantics(t *testing.T) {
-	// Bare item: bold name only — no raw id (it lives in --json), no count.
-	if got := overviewLine(wire.OverviewItem{ID: "x", Title: "Bare"}); got != "**Bare**" {
-		t.Errorf("bare item: got %q, want %q", got, "**Bare**")
+	// Bare item: plain name only — no markdown bold, no raw id (it's in
+	// --json), no count.
+	if got := overviewLine(wire.OverviewItem{ID: "x", Title: "Bare"}); got != "Bare" {
+		t.Errorf("bare item: got %q, want %q", got, "Bare")
 	}
 	// A 0 count still renders (pointer distinguishes 0 from absent).
 	if got := overviewLine(wire.OverviewItem{ID: "x", Title: "Z", Count: intp(0)}); !strings.Contains(got, "(0)") {

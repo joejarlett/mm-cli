@@ -230,13 +230,13 @@ func appGloss(slug string) string {
 func overviewDrillHint(slug string) string {
 	switch slug {
 	case "kb":
-		return "_→ `mm kb peek \"<name>\"` (summary) · `mm kb tree \"<name>\"` (docs) · `mm kb find \"<q>\"`_"
+		return "→ `mm kb peek \"<name>\"` (summary) · `mm kb tree \"<name>\"` (docs) · `mm kb find \"<q>\"`"
 	case "crm":
-		return "_→ `mm crm context \"<name>\"` · `mm crm find \"<q>\"`_"
+		return "→ `mm crm context \"<name>\"` · `mm crm find \"<q>\"`"
 	case "desk":
-		return "_→ `mm desk show` · `mm project detail <name>` (files)_"
+		return "→ `mm desk show` · `mm project detail <name>` (files)"
 	default:
-		return fmt.Sprintf("_→ `mm %s find \"<q>\"` · `mm %s ask \"...\"`_", slug, slug)
+		return fmt.Sprintf("→ `mm %s find \"<q>\"` · `mm %s ask \"...\"`", slug, slug)
 	}
 }
 
@@ -244,14 +244,18 @@ func overviewDrillHint(slug string) string {
 // answered, so a short list doesn't masquerade as the whole environment. Apps
 // only appear once they declare the capability in their Agent Card.
 func provenanceFooter(n int, verb string) string {
-	return fmt.Sprintf("_%d app%s · not every app exposes %s yet, and desk shows only when its local agent is reachable (`mm cards`)._\n",
+	return fmt.Sprintf("%d app%s · not every app exposes %s yet, and desk shows only when its local agent is reachable (`mm cards`).\n",
 		n, plural(n), verb)
 }
 
-// overviewLine renders one catalogue item: bold name, gloss, count. No raw id
-// — the name is the nav handle, and the machine id lives in `--json`.
+// overviewLine renders one catalogue item: name, gloss, count. No markdown
+// bold (token noise for an LLM; the bullet already delimits the name) and no
+// raw id — the name is the nav handle, the machine id lives in `--json`.
+// The bare count is "this item's magnitude"; its unit is implied by the
+// section (Notebooks→docs, Active projects→threads). Apps whose count isn't
+// self-evident should label it in the subtitle instead.
 func overviewLine(it wire.OverviewItem) string {
-	line := "**" + strings.TrimSpace(it.Title) + "**"
+	line := strings.TrimSpace(it.Title)
 	if it.Subtitle != "" {
 		line += " — " + it.Subtitle
 	}
