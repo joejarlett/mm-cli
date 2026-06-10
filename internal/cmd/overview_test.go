@@ -30,7 +30,7 @@ func TestRenderOverview_ScopedDropsHeader(t *testing.T) {
 	if strings.Contains(got, "# kb") {
 		t.Errorf("scoped overview should omit the per-app header, got:\n%s", got)
 	}
-	if strings.Contains(got, "surfacing") {
+	if strings.Contains(got, "mm cards") {
 		t.Errorf("scoped overview should omit the provenance footer, got:\n%s", got)
 	}
 	for _, want := range []string{"## Notebooks (2)", "Joe-Inc (12)", "`abc`", "Neurodiversity — research (3)"} {
@@ -50,7 +50,7 @@ func TestRenderOverview_AggregateSingleAppKeepsHeaderAndProvenance(t *testing.T)
 	if !strings.Contains(got, "# kb") {
 		t.Errorf("aggregate overview must show the per-app header even for one app, got:\n%s", got)
 	}
-	if !strings.Contains(got, "1 app surfacing") || !strings.Contains(got, "mm cards") {
+	if !strings.Contains(got, "1 app ·") || !strings.Contains(got, "mm cards") {
 		t.Errorf("aggregate overview must show a provenance footer, got:\n%s", got)
 	}
 }
@@ -64,7 +64,7 @@ func TestRenderOverview_MultiAppHeaders(t *testing.T) {
 	if !strings.Contains(got, "# crm") || !strings.Contains(got, "# kb") {
 		t.Errorf("multi-app overview should print per-app headers, got:\n%s", got)
 	}
-	if !strings.Contains(got, "2 apps surfacing") {
+	if !strings.Contains(got, "2 apps ·") {
 		t.Errorf("multi-app overview should report 2 apps, got:\n%s", got)
 	}
 	// Deterministic ordering: crm sorts before kb.
@@ -120,7 +120,7 @@ func TestRenderSurface_AggregateSingleAppProvenance(t *testing.T) {
 	if !strings.Contains(got, "# kb (1)") {
 		t.Errorf("aggregate surface must show the per-app header, got:\n%s", got)
 	}
-	if !strings.Contains(got, "1 app surfacing") {
+	if !strings.Contains(got, "1 app ·") {
 		t.Errorf("aggregate surface must show a provenance footer, got:\n%s", got)
 	}
 }

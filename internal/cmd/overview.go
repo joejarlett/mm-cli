@@ -7,6 +7,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -81,20 +82,28 @@ func runOverview(cmd *cobra.Command, args []string) error {
 		return overviewScoped(cmd, app)
 	}
 
-	// Aggregate: fan out across every app the hub can reach.
+	// Aggregate: fan out across every app the hub can reach, then best-effort
+	// stitch desk (pull-mode — the hub can't reach the local agent).
 	ctx := cmd.Context()
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	node, _ := cmd.Flags().GetString("node")
 	raw, err := hubRaw(ctx, "overview", "get", map[string]any{})
 	if err != nil {
 		return err
 	}
-	if wantJSON {
-		printJSON(raw)
-		return nil
-	}
 	var resp wire.OverviewResp
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return err
+	}
+	if deskApp, ok := stitchDeskOverview(ctx, node); ok {
+		if resp.Apps == nil {
+			resp.Apps = map[string]wire.OverviewApp{}
+		}
+		resp.Apps["desk"] = deskApp
+	}
+	if wantJSON {
+		printJSON(mustJSON(resp))
+		return nil
 	}
 	fmt.Print(renderOverview(resp, false))
 	return nil
@@ -186,7 +195,7 @@ func renderOverview(resp wire.OverviewResp, scoped bool) string {
 // answered, so a short list doesn't masquerade as the whole environment. Apps
 // only appear once they declare the capability in their Agent Card.
 func provenanceFooter(n int, verb string) string {
-	return fmt.Sprintf("_%d app%s surfacing — others haven't adopted %s yet (`mm cards`)._\n",
+	return fmt.Sprintf("_%d app%s · not every app exposes %s yet, and desk shows only when its local agent is reachable (`mm cards`)._\n",
 		n, plural(n), verb)
 }
 
@@ -221,9 +230,11 @@ func runSurface(cmd *cobra.Command, args []string) error {
 		return surfaceScoped(cmd, app, limit)
 	}
 
-	// Aggregate: fan out across every app the hub can reach.
+	// Aggregate: fan out across every app the hub can reach, then best-effort
+	// stitch desk (pull-mode — the hub can't reach the local agent).
 	ctx := cmd.Context()
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	node, _ := cmd.Flags().GetString("node")
 	payload := map[string]any{}
 	if limit > 0 {
 		payload["limit"] = limit
@@ -232,13 +243,19 @@ func runSurface(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if wantJSON {
-		printJSON(raw)
-		return nil
-	}
 	var resp wire.SurfaceResp
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return err
+	}
+	if deskApp, ok := stitchDeskSurface(ctx, node); ok {
+		if resp.Apps == nil {
+			resp.Apps = map[string]wire.SurfaceApp{}
+		}
+		resp.Apps["desk"] = deskApp
+	}
+	if wantJSON {
+		printJSON(mustJSON(resp))
+		return nil
 	}
 	fmt.Print(renderSurface(resp, false))
 	return nil
@@ -364,6 +381,101 @@ func deskSurfaceLocal(cmd *cobra.Command) error {
 	}
 	renderDeskOverview(data)
 	return nil
+}
+
+// ─── desk stitch (best-effort, for the aggregate views) ─────────────────
+
+// deskStitchTimeout bounds the local-agent call when stitching desk into an
+// aggregate overview/surface. Desk is pull-mode and its agent is only
+// guaranteed up on the user's own always-on node (e.g. Joe's m4) — for anyone
+// else it may be off, so a slow/absent agent must never stall the panorama.
+// A connection-refused returns immediately; this caps the hang case.
+const deskStitchTimeout = 2 * time.Second
+
+// stitchDeskOverview fetches the local agent's projects as a desk OverviewApp.
+// Best-effort: returns ok=false (and the aggregate simply omits desk) if the
+// agent is unreachable, errors, or has nothing.
+func stitchDeskOverview(ctx context.Context, node string) (wire.OverviewApp, bool) {
+	ctx, cancel := context.WithTimeout(ctx, deskStitchTimeout)
+	defer cancel()
+	resp, err := mmhttp.New().AgentFetch(ctx, node, "/api/projects", nil)
+	if err != nil {
+		return wire.OverviewApp{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return wire.OverviewApp{}, false
+	}
+	var data wire.AgentProjectsListResp
+	if json.NewDecoder(resp.Body).Decode(&data) != nil || len(data.Projects) == 0 {
+		return wire.OverviewApp{}, false
+	}
+	items := make([]wire.OverviewItem, 0, len(data.Projects))
+	for _, p := range data.Projects {
+		it := wire.OverviewItem{ID: p.ID, Title: p.Label, Subtitle: p.RootPath}
+		if p.ThreadCount != nil {
+			c := *p.ThreadCount
+			it.Count = &c
+		}
+		items = append(items, it)
+	}
+	return wire.OverviewApp{
+		Sections: []wire.OverviewSection{{Label: "Projects", Items: items}},
+		Meta:     map[string]any{"app": "desk", "pull_mode": true},
+	}, true
+}
+
+// stitchDeskSurface maps the local agent's event log into a desk SurfaceApp:
+// open loops lead (they're the attention items), then salient events, capped
+// per project so one busy project can't flood the panorama. Best-effort.
+func stitchDeskSurface(ctx context.Context, node string) (wire.SurfaceApp, bool) {
+	ctx, cancel := context.WithTimeout(ctx, deskStitchTimeout)
+	defer cancel()
+	resp, err := mmhttp.New().AgentFetch(ctx, node, "/api/events/overview", nil)
+	if err != nil {
+		return wire.SurfaceApp{}, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return wire.SurfaceApp{}, false
+	}
+	var data wire.AgentDeskOverview
+	if json.NewDecoder(resp.Body).Decode(&data) != nil {
+		return wire.SurfaceApp{}, false
+	}
+	items := make([]wire.SurfaceItem, 0, len(data.OpenLoops))
+	for _, e := range data.OpenLoops {
+		items = append(items, deskEventToSurface(e, "open_loop"))
+	}
+	const perProject = 3
+	for _, g := range data.Groups {
+		n := 0
+		for _, e := range g.Events {
+			if n >= perProject {
+				break
+			}
+			items = append(items, deskEventToSurface(e, e.Kind))
+			n++
+		}
+	}
+	if len(items) == 0 {
+		return wire.SurfaceApp{}, false
+	}
+	return wire.SurfaceApp{
+		Items: items,
+		Meta:  map[string]any{"app": "desk", "total": len(items), "pull_mode": true},
+	}, true
+}
+
+func deskEventToSurface(e wire.AgentDeskEvent, kind string) wire.SurfaceItem {
+	if kind == "" {
+		kind = "event"
+	}
+	at := ""
+	if e.TS > 0 {
+		at = time.UnixMilli(e.TS).UTC().Format(time.RFC3339)
+	}
+	return wire.SurfaceItem{ID: e.ID, Title: e.Summary, Subtitle: e.ThreadTitle, Kind: kind, At: at}
 }
 
 // ─── shared helpers ─────────────────────────────────────────────────────
