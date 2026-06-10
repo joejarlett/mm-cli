@@ -352,22 +352,29 @@ func renderSurface(resp wire.SurfaceResp, scoped bool) string {
 	}
 	sort.Strings(slugs)
 	if len(slugs) == 0 {
-		return "_Nothing surfacing right now._\n"
+		return "Nothing surfacing right now.\n"
 	}
 	showHeader := !scoped || len(slugs) > 1
 	for _, slug := range slugs {
 		sf := resp.Apps[slug]
 		if showHeader {
-			fmt.Fprintf(&b, "# %s (%d)\n\n", slug, len(sf.Items))
+			if g := appGloss(slug); g != "" {
+				fmt.Fprintf(&b, "# %s — %s (%d)\n\n", slug, g, len(sf.Items))
+			} else {
+				fmt.Fprintf(&b, "# %s (%d)\n\n", slug, len(sf.Items))
+			}
 		}
 		if len(sf.Items) == 0 {
-			b.WriteString("_Nothing surfacing._\n\n")
-			continue
+			b.WriteString("Nothing surfacing.\n\n")
+		} else {
+			for _, it := range sf.Items {
+				b.WriteString("- " + surfaceLine(it) + "\n")
+			}
+			b.WriteString("\n")
 		}
-		for _, it := range sf.Items {
-			b.WriteString("- " + surfaceLine(it) + "\n")
+		if h := surfaceDrillHint(slug); h != "" {
+			b.WriteString(h + "\n\n")
 		}
-		b.WriteString("\n")
 	}
 	if !scoped {
 		b.WriteString(provenanceFooter(len(slugs), "surface"))
@@ -375,6 +382,10 @@ func renderSurface(resp wire.SurfaceResp, scoped bool) string {
 	return b.String()
 }
 
+// surfaceLine renders one activity item: [kind] title — gloss · date. The
+// kind tag and date are the load-bearing signal for decaying activity; the
+// raw id is dropped (it lives in `--json`) — to act on an item the agent uses
+// the name/title via the drill-in road, same as overview.
 func surfaceLine(it wire.SurfaceItem) string {
 	var b strings.Builder
 	if it.Kind != "" {
@@ -384,17 +395,26 @@ func surfaceLine(it wire.SurfaceItem) string {
 	if it.Subtitle != "" {
 		b.WriteString(" — " + it.Subtitle)
 	}
-	meta := []string{}
 	if d := fmtDate(it.At); d != "" {
-		meta = append(meta, d)
-	}
-	if it.ID != "" {
-		meta = append(meta, "`"+it.ID+"`")
-	}
-	if len(meta) > 0 {
-		b.WriteString(" · " + strings.Join(meta, " · "))
+		b.WriteString(" · " + d)
 	}
 	return b.String()
+}
+
+// surfaceDrillHint is the road out of a surface item — how to act on what's
+// surfacing (read it, open the thread, follow up), distinct from overview's
+// catalogue-navigation roads.
+func surfaceDrillHint(slug string) string {
+	switch slug {
+	case "crm":
+		return "→ `mm crm context \"<name>\"` · `mm crm log \"...\"` (follow up)"
+	case "kb":
+		return "→ `mm kb read \"<title>\"` · `mm kb peek \"<title>\"`"
+	case "desk":
+		return "→ `mm desk` (threads) · `mm desk search \"<title>\"`"
+	default:
+		return fmt.Sprintf("→ `mm %s ask \"...\"`", slug)
+	}
 }
 
 // ─── desk pull-mode (local agent) ───────────────────────────────────────
@@ -523,6 +543,12 @@ func stitchDeskSurface(ctx context.Context, node string) (wire.SurfaceApp, bool)
 		for _, e := range g.Events {
 			if n >= perProject {
 				break
+			}
+			// Surface is "what's happening / needs attention" — a resolved
+			// loop is done, not happening, so it's noise here. Open loops
+			// (which lead, above) are never resolved by definition.
+			if e.Kind == "resolved" {
+				continue
 			}
 			items = append(items, deskEventToSurface(e, e.Kind))
 			n++

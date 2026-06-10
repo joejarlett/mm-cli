@@ -102,10 +102,13 @@ func TestRenderSurface_KindAndDate(t *testing.T) {
 		}},
 	}}
 	got := renderSurface(resp, true)
-	for _, want := range []string{"[followup] Follow up with Acme", "2026-06-09", "[deal] Deal warming — Beta Ltd", "`2`"} {
+	for _, want := range []string{"[followup] Follow up with Acme", "2026-06-09", "[deal] Deal warming — Beta Ltd"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("surface missing %q in:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "`2`") {
+		t.Errorf("raw ids should not appear in the surface human view (they live in --json), got:\n%s", got)
 	}
 }
 
@@ -122,8 +125,9 @@ func TestRenderSurface_AggregateSingleAppProvenance(t *testing.T) {
 		"kb": {Items: []wire.SurfaceItem{{ID: "1", Title: "Recent doc", Kind: "research"}}},
 	}}
 	got := renderSurface(resp, false)
-	if !strings.Contains(got, "# kb (1)") {
-		t.Errorf("aggregate surface must show the per-app header, got:\n%s", got)
+	// Header carries the app tagline now: "# kb — <gloss> (1)".
+	if !strings.Contains(got, "# kb — ") || !strings.Contains(got, "(1)") {
+		t.Errorf("aggregate surface must show the tagline'd per-app header, got:\n%s", got)
 	}
 	if !strings.Contains(got, "1 app ·") {
 		t.Errorf("aggregate surface must show a provenance footer, got:\n%s", got)
