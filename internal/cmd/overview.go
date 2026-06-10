@@ -69,23 +69,22 @@ func NewSurfaceCmd() *cobra.Command {
 // ─── overview ───────────────────────────────────────────────────────────
 
 func runOverview(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
 	app := ""
 	if len(args) == 1 {
 		app = strings.ToLower(args[0])
 	}
-	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
-
 	// Desk is pull-mode — the hub can't reach the local agent.
 	if app == "desk" {
 		return deskOverviewLocal(cmd)
 	}
-
-	payload := map[string]any{}
 	if app != "" {
-		payload["app"] = app
+		return overviewScoped(cmd, app)
 	}
-	raw, err := hubRaw(ctx, "overview", "get", payload)
+
+	// Aggregate: fan out across every app the hub can reach.
+	ctx := cmd.Context()
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	raw, err := hubRaw(ctx, "overview", "get", map[string]any{})
 	if err != nil {
 		return err
 	}
@@ -97,7 +96,39 @@ func runOverview(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return err
 	}
-	fmt.Print(renderOverview(resp, app != ""))
+	fmt.Print(renderOverview(resp, false))
+	return nil
+}
+
+// overviewScoped renders a single app's overview via the hub — the shared
+// path behind `mm overview <app>` and per-app aliases (`kb tree` once the
+// notebook-count drift is reconciled).
+//
+// The response is filtered to the requested app CLI-side: the hub aggregator
+// currently ignores the `app` param and returns every live app, so a scoped
+// command would otherwise leak other apps' content. Filtering here keeps the
+// CLI correct regardless of whether the hub honours the param.
+func overviewScoped(cmd *cobra.Command, app string) error {
+	ctx := cmd.Context()
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	raw, err := hubRaw(ctx, "overview", "get", map[string]any{"app": app})
+	if err != nil {
+		return err
+	}
+	var resp wire.OverviewResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return err
+	}
+	ov, ok := resp.Apps[app]
+	if !ok {
+		return fmt.Errorf("%s doesn't expose an overview (run `mm cards` to see which apps do)", app)
+	}
+	filtered := wire.OverviewResp{Apps: map[string]wire.OverviewApp{app: ov}}
+	if wantJSON {
+		printJSON(mustJSON(filtered))
+		return nil
+	}
+	fmt.Print(renderOverview(filtered, true))
 	return nil
 }
 
@@ -177,22 +208,23 @@ func overviewLine(it wire.OverviewItem) string {
 // ─── surface ────────────────────────────────────────────────────────────
 
 func runSurface(cmd *cobra.Command, args []string) error {
-	ctx := cmd.Context()
 	app := ""
 	if len(args) == 1 {
 		app = strings.ToLower(args[0])
 	}
-	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 	limit, _ := cmd.Flags().GetInt("limit")
 
 	if app == "desk" {
 		return deskSurfaceLocal(cmd)
 	}
-
-	payload := map[string]any{}
 	if app != "" {
-		payload["app"] = app
+		return surfaceScoped(cmd, app, limit)
 	}
+
+	// Aggregate: fan out across every app the hub can reach.
+	ctx := cmd.Context()
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	payload := map[string]any{}
 	if limit > 0 {
 		payload["limit"] = limit
 	}
@@ -208,7 +240,39 @@ func runSurface(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return err
 	}
-	fmt.Print(renderSurface(resp, app != ""))
+	fmt.Print(renderSurface(resp, false))
+	return nil
+}
+
+// surfaceScoped renders a single app's surface via the hub — the shared path
+// behind `mm surface <app>` and per-app aliases like `mm crm surface`. As with
+// overviewScoped, the response is filtered to the requested app CLI-side
+// because the hub aggregator currently ignores the `app` param.
+func surfaceScoped(cmd *cobra.Command, app string, limit int) error {
+	ctx := cmd.Context()
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	payload := map[string]any{"app": app}
+	if limit > 0 {
+		payload["limit"] = limit
+	}
+	raw, err := hubRaw(ctx, "surface", "get", payload)
+	if err != nil {
+		return err
+	}
+	var resp wire.SurfaceResp
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return err
+	}
+	sf, ok := resp.Apps[app]
+	if !ok {
+		return fmt.Errorf("%s doesn't expose a surface (run `mm cards` to see which apps do)", app)
+	}
+	filtered := wire.SurfaceResp{Apps: map[string]wire.SurfaceApp{app: sf}}
+	if wantJSON {
+		printJSON(mustJSON(filtered))
+		return nil
+	}
+	fmt.Print(renderSurface(filtered, true))
 	return nil
 }
 

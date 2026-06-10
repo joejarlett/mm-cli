@@ -48,10 +48,14 @@ func newCrmUseCmd() *cobra.Command {
 		}}
 }
 
+// newCrmSurfaceCmd is an alias of the universal `mm surface crm` — one
+// implementation of the surface axis (the normalised agent.surface, which
+// renders commitments with due dates / overdue framing), not a second bespoke
+// path. The richer salience view stays reachable via `mm crm ask`.
 func newCrmSurfaceCmd() *cobra.Command {
-	return &cobra.Command{Use: "surface", Short: "Today's priorities", Args: cobra.NoArgs,
+	return &cobra.Command{Use: "surface", Short: "What's surfacing now (alias of `mm surface crm`)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "surface", "list", nil)
+			return surfaceScoped(cmd, "crm", 0)
 		}}
 }
 func newCrmContactsCmd() *cobra.Command {
