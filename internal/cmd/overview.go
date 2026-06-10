@@ -506,7 +506,9 @@ func stitchDeskOverview(ctx context.Context, node string) (wire.OverviewApp, boo
 	items := make([]wire.OverviewItem, 0, len(capped))
 	for _, p := range capped {
 		c := *p.ThreadCount
-		items = append(items, wire.OverviewItem{ID: p.ID, Title: p.Label, Count: &c})
+		// Subtitle is the desk agent's project gloss once it ships one
+		// (empty until then — the line just shows name + thread count).
+		items = append(items, wire.OverviewItem{ID: p.ID, Title: p.Label, Subtitle: p.Description, Count: &c})
 	}
 	label := "Active projects"
 	if len(active) > len(capped) {
