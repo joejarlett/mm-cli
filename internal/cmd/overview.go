@@ -259,6 +259,9 @@ func overviewLine(it wire.OverviewItem) string {
 	if it.Subtitle != "" {
 		line += " — " + it.Subtitle
 	}
+	if it.Value != "" {
+		line += " · " + it.Value
+	}
 	if it.Count != nil {
 		line += fmt.Sprintf(" (%d)", *it.Count)
 	}

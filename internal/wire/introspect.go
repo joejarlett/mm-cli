@@ -11,10 +11,16 @@ package wire
 // ─── overview (agent.overview, normalised) ──────────────────────────────
 
 // OverviewItem is one entry in an overview section — a stable catalogue row.
+//
+// Per the contract, the three quantitative/descriptive slots are distinct and
+// shouldn't all describe the same number: value = preformatted headline amount
+// with its unit baked in by the app ("£47,000", "175 kg"); count = a quantity;
+// subtitle = a qualitative gloss.
 type OverviewItem struct {
 	ID       string `json:"id"`
 	Title    string `json:"title"`
 	Subtitle string `json:"subtitle,omitempty"`
+	Value    string `json:"value,omitempty"` // preformatted headline amount + unit
 	Count    *int   `json:"count,omitempty"` // pointer: distinguish 0 from absent
 	Href     string `json:"href,omitempty"`
 }
