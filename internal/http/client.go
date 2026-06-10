@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"mm-cli/internal/auth"
@@ -93,6 +94,14 @@ func (c *Client) Hub(ctx context.Context, feature, action string, payload any, o
 		Errors []wire.HubErrItem `json:"errors"`
 	}
 	if err := json.Unmarshal(respBody, &probe); err != nil {
+		// A non-JSON body is almost always the hub's HTML maintenance/error
+		// page during a deploy or upstream blip (502/503/504). Surface that
+		// cleanly instead of dumping HTML at the user; keep the raw snippet
+		// only for genuinely unexpected non-JSON so it's still debuggable.
+		if resp.StatusCode == 502 || resp.StatusCode == 503 || resp.StatusCode == 504 ||
+			strings.HasPrefix(strings.TrimSpace(string(respBody)), "<") {
+			return fmt.Errorf("hub unavailable (HTTP %d) — it may be restarting or deploying; try again shortly", resp.StatusCode)
+		}
 		return fmt.Errorf("hub %s.%s: non-JSON response (HTTP %d): %s",
 			feature, action, resp.StatusCode, truncate(string(respBody), 200))
 	}
