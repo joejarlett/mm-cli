@@ -99,23 +99,26 @@ func listProjects(cmd *cobra.Command, node string) error {
 }
 
 // renderProjects is the canonical markdown for the project catalogue, matching
-// the `mm overview <app>` house style (count header + markdown bullets).
+// the `mm overview <app>` house style: name — README gloss · N threads. No
+// bold, no raw id/path (machine detail — those live in `--json`); the label is
+// the nav handle (it resolves in `mm project detail <name>`).
 func renderProjects(data wire.AgentProjectsListResp) string {
 	if len(data.Projects) == 0 {
-		return "_No projects._\n"
+		return "No projects.\n"
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "## Projects (%d)\n\n", len(data.Projects))
 	for _, p := range data.Projects {
-		id6 := p.ID
-		if len(id6) > 6 {
-			id6 = id6[:6]
-		}
 		count := 0
 		if p.ThreadCount != nil {
 			count = *p.ThreadCount
 		}
-		fmt.Fprintf(&b, "- **%s** (`%s`) — %d thread%s · `%s`\n", p.Label, id6, count, plural(count), p.RootPath)
+		line := p.Label
+		if p.Description != "" {
+			line += " — " + p.Description
+		}
+		line += fmt.Sprintf(" · %d thread%s", count, plural(count))
+		b.WriteString("- " + line + "\n")
 	}
 	return b.String()
 }
