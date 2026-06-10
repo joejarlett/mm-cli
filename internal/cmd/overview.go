@@ -97,14 +97,19 @@ func runOverview(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return err
 	}
-	fmt.Print(renderOverview(resp))
+	fmt.Print(renderOverview(resp, app != ""))
 	return nil
 }
 
-// renderOverview turns the aggregator shape into markdown. A per-app header is
-// printed only when more than one app is present, so a single-app overview
-// stays uncluttered.
-func renderOverview(resp wire.OverviewResp) string {
+// renderOverview turns the aggregator shape into markdown.
+//
+// scoped is true when the user named an app (`mm overview kb`): the header is
+// redundant — they know what they asked for — so it's dropped. The bare
+// aggregate form (`mm overview`) always shows per-app headers and a provenance
+// footer, because its whole value is knowing *which* apps answered: a lone
+// section with no header reads as "this is everything" when it really means
+// "this is the one app wired up so far".
+func renderOverview(resp wire.OverviewResp, scoped bool) string {
 	var b strings.Builder
 	slugs := make([]string, 0, len(resp.Apps))
 	for k := range resp.Apps {
@@ -114,10 +119,10 @@ func renderOverview(resp wire.OverviewResp) string {
 	if len(slugs) == 0 {
 		return "_No apps expose an overview yet._\n"
 	}
-	multi := len(slugs) > 1
+	showHeader := !scoped || len(slugs) > 1
 	for _, slug := range slugs {
 		ov := resp.Apps[slug]
-		if multi {
+		if showHeader {
 			fmt.Fprintf(&b, "# %s\n\n", slug)
 		}
 		if len(ov.Sections) == 0 {
@@ -140,7 +145,18 @@ func renderOverview(resp wire.OverviewResp) string {
 			b.WriteString("\n")
 		}
 	}
+	if !scoped {
+		b.WriteString(provenanceFooter(len(slugs), "overview"))
+	}
 	return b.String()
+}
+
+// provenanceFooter tells the aggregate form's reader how many apps actually
+// answered, so a short list doesn't masquerade as the whole environment. Apps
+// only appear once they declare the capability in their Agent Card.
+func provenanceFooter(n int, verb string) string {
+	return fmt.Sprintf("_%d app%s surfacing — others haven't adopted %s yet (`mm cards`)._\n",
+		n, plural(n), verb)
 }
 
 func overviewLine(it wire.OverviewItem) string {
@@ -192,11 +208,11 @@ func runSurface(cmd *cobra.Command, args []string) error {
 	if err := json.Unmarshal(raw, &resp); err != nil {
 		return err
 	}
-	fmt.Print(renderSurface(resp))
+	fmt.Print(renderSurface(resp, app != ""))
 	return nil
 }
 
-func renderSurface(resp wire.SurfaceResp) string {
+func renderSurface(resp wire.SurfaceResp, scoped bool) string {
 	var b strings.Builder
 	slugs := make([]string, 0, len(resp.Apps))
 	for k := range resp.Apps {
@@ -206,10 +222,10 @@ func renderSurface(resp wire.SurfaceResp) string {
 	if len(slugs) == 0 {
 		return "_Nothing surfacing right now._\n"
 	}
-	multi := len(slugs) > 1
+	showHeader := !scoped || len(slugs) > 1
 	for _, slug := range slugs {
 		sf := resp.Apps[slug]
-		if multi {
+		if showHeader {
 			fmt.Fprintf(&b, "# %s (%d)\n\n", slug, len(sf.Items))
 		}
 		if len(sf.Items) == 0 {
@@ -220,6 +236,9 @@ func renderSurface(resp wire.SurfaceResp) string {
 			b.WriteString("- " + surfaceLine(it) + "\n")
 		}
 		b.WriteString("\n")
+	}
+	if !scoped {
+		b.WriteString(provenanceFooter(len(slugs), "surface"))
 	}
 	return b.String()
 }

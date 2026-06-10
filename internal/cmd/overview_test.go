@@ -14,7 +14,9 @@ import (
 
 func intp(n int) *int { return &n }
 
-func TestRenderOverview_SingleAppNoHeader(t *testing.T) {
+// Scoped form (`mm overview kb`) drops the redundant header — the user named
+// the app.
+func TestRenderOverview_ScopedDropsHeader(t *testing.T) {
 	resp := wire.OverviewResp{Apps: map[string]wire.OverviewApp{
 		"kb": {Sections: []wire.OverviewSection{
 			{Label: "Notebooks", Items: []wire.OverviewItem{
@@ -23,11 +25,13 @@ func TestRenderOverview_SingleAppNoHeader(t *testing.T) {
 			}},
 		}},
 	}}
-	got := renderOverview(resp)
+	got := renderOverview(resp, true) // scoped
 
-	// Single app → no `# kb` header.
 	if strings.Contains(got, "# kb") {
-		t.Errorf("single-app overview should omit the per-app header, got:\n%s", got)
+		t.Errorf("scoped overview should omit the per-app header, got:\n%s", got)
+	}
+	if strings.Contains(got, "surfacing") {
+		t.Errorf("scoped overview should omit the provenance footer, got:\n%s", got)
 	}
 	for _, want := range []string{"## Notebooks (2)", "Joe-Inc (12)", "`abc`", "Neurodiversity — research (3)"} {
 		if !strings.Contains(got, want) {
@@ -36,14 +40,32 @@ func TestRenderOverview_SingleAppNoHeader(t *testing.T) {
 	}
 }
 
+// Aggregate form (`mm overview`) ALWAYS shows the header + provenance, even
+// for one app — so a lone section can't masquerade as the whole environment.
+func TestRenderOverview_AggregateSingleAppKeepsHeaderAndProvenance(t *testing.T) {
+	resp := wire.OverviewResp{Apps: map[string]wire.OverviewApp{
+		"kb": {Sections: []wire.OverviewSection{{Label: "Notebooks", Items: []wire.OverviewItem{{ID: "a", Title: "X"}}}}},
+	}}
+	got := renderOverview(resp, false) // aggregate
+	if !strings.Contains(got, "# kb") {
+		t.Errorf("aggregate overview must show the per-app header even for one app, got:\n%s", got)
+	}
+	if !strings.Contains(got, "1 app surfacing") || !strings.Contains(got, "mm cards") {
+		t.Errorf("aggregate overview must show a provenance footer, got:\n%s", got)
+	}
+}
+
 func TestRenderOverview_MultiAppHeaders(t *testing.T) {
 	resp := wire.OverviewResp{Apps: map[string]wire.OverviewApp{
 		"kb":  {Sections: []wire.OverviewSection{{Label: "Notebooks", Items: []wire.OverviewItem{{ID: "a", Title: "X"}}}}},
 		"crm": {Sections: []wire.OverviewSection{{Label: "Instances", Items: []wire.OverviewItem{{ID: "b", Title: "GN"}}}}},
 	}}
-	got := renderOverview(resp)
+	got := renderOverview(resp, false)
 	if !strings.Contains(got, "# crm") || !strings.Contains(got, "# kb") {
 		t.Errorf("multi-app overview should print per-app headers, got:\n%s", got)
+	}
+	if !strings.Contains(got, "2 apps surfacing") {
+		t.Errorf("multi-app overview should report 2 apps, got:\n%s", got)
 	}
 	// Deterministic ordering: crm sorts before kb.
 	if strings.Index(got, "# crm") > strings.Index(got, "# kb") {
@@ -52,7 +74,7 @@ func TestRenderOverview_MultiAppHeaders(t *testing.T) {
 }
 
 func TestRenderOverview_Empty(t *testing.T) {
-	if got := renderOverview(wire.OverviewResp{}); !strings.Contains(got, "No apps expose an overview") {
+	if got := renderOverview(wire.OverviewResp{}, false); !strings.Contains(got, "No apps expose an overview") {
 		t.Errorf("empty overview should explain itself, got: %q", got)
 	}
 }
@@ -74,7 +96,7 @@ func TestRenderSurface_KindAndDate(t *testing.T) {
 			{ID: "2", Title: "Deal warming", Subtitle: "Beta Ltd", Kind: "deal"},
 		}},
 	}}
-	got := renderSurface(resp)
+	got := renderSurface(resp, true)
 	for _, want := range []string{"[followup] Follow up with Acme", "2026-06-09", "[deal] Deal warming — Beta Ltd", "`2`"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("surface missing %q in:\n%s", want, got)
@@ -84,13 +106,27 @@ func TestRenderSurface_KindAndDate(t *testing.T) {
 
 func TestRenderSurface_EmptyItemsPerApp(t *testing.T) {
 	resp := wire.SurfaceResp{Apps: map[string]wire.SurfaceApp{"kb": {Items: nil}}}
-	if got := renderSurface(resp); !strings.Contains(got, "Nothing surfacing") {
+	if got := renderSurface(resp, true); !strings.Contains(got, "Nothing surfacing") {
 		t.Errorf("app with no items should say so, got: %q", got)
 	}
 }
 
+// Aggregate surface keeps the header + provenance even for a single app.
+func TestRenderSurface_AggregateSingleAppProvenance(t *testing.T) {
+	resp := wire.SurfaceResp{Apps: map[string]wire.SurfaceApp{
+		"kb": {Items: []wire.SurfaceItem{{ID: "1", Title: "Recent doc", Kind: "research"}}},
+	}}
+	got := renderSurface(resp, false)
+	if !strings.Contains(got, "# kb (1)") {
+		t.Errorf("aggregate surface must show the per-app header, got:\n%s", got)
+	}
+	if !strings.Contains(got, "1 app surfacing") {
+		t.Errorf("aggregate surface must show a provenance footer, got:\n%s", got)
+	}
+}
+
 func TestRenderSurface_Empty(t *testing.T) {
-	if got := renderSurface(wire.SurfaceResp{}); !strings.Contains(got, "Nothing surfacing right now") {
+	if got := renderSurface(wire.SurfaceResp{}, false); !strings.Contains(got, "Nothing surfacing right now") {
 		t.Errorf("empty surface should explain itself, got: %q", got)
 	}
 }
