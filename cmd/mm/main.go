@@ -112,9 +112,13 @@ output. Start with 'mm cards' to see every app, or 'mm <app> --help'.`,
 	add(grpAgents, cmd.NewCaptureCmd())
 	add(grpAgents, cmd.NewProjectCmd())
 
-	// Discovery — find what apps and surfaces exist.
+	// Discovery — find what apps and surfaces exist, and what's in them.
+	//   cards/manifest → what apps can DO · overview → what IS here ·
+	//   surface → what's HAPPENING now.
 	add(grpDiscing, cmd.NewCardsCmd())
 	add(grpDiscing, cmd.NewManifestCmd())
+	add(grpDiscing, cmd.NewOverviewCmd())
+	add(grpDiscing, cmd.NewSurfaceCmd())
 
 	// Account — who am I, what can I reach.
 	add(grpAccount, cmd.NewLoginCmd())
@@ -127,6 +131,7 @@ output. Start with 'mm cards' to see every app, or 'mm <app> --help'.`,
 	add(grpSystem, cmd.NewFeedbackCmd())
 	add(grpSystem, cmd.NewSttCmd())
 	add(grpSystem, cmd.NewTtsCmd())
+	add(grpSystem, cmd.NewConvertCmd())
 	add(grpSystem, cmd.NewUpdateCmd())
 	add(grpSystem, cmd.NewVersionCmd())
 
