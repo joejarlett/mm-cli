@@ -33,7 +33,10 @@ func TestRenderOverview_ScopedDropsHeader(t *testing.T) {
 	if strings.Contains(got, "mm cards") {
 		t.Errorf("scoped overview should omit the provenance footer, got:\n%s", got)
 	}
-	for _, want := range []string{"## Notebooks (2)", "Joe-Inc (12)", "`abc`", "Neurodiversity — research (3)"} {
+	if strings.Contains(got, "`abc`") {
+		t.Errorf("raw ids should not appear in the human view (they live in --json), got:\n%s", got)
+	}
+	for _, want := range []string{"## Notebooks (2)", "**Joe-Inc** (12)", "**Neurodiversity** — research (3)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("overview missing %q in:\n%s", want, got)
 		}
@@ -79,13 +82,14 @@ func TestRenderOverview_Empty(t *testing.T) {
 	}
 }
 
-func TestOverviewLine_OmitsAbsentCountAndSubtitle(t *testing.T) {
-	// count nil and no subtitle → neither rendered, but a 0 count still shows.
-	if got := overviewLine(wire.OverviewItem{ID: "x", Title: "Bare"}); got != "Bare `x`" {
-		t.Errorf("bare item: got %q", got)
+func TestOverviewLine_NoRawIDAndCountSemantics(t *testing.T) {
+	// Bare item: bold name only — no raw id (it lives in --json), no count.
+	if got := overviewLine(wire.OverviewItem{ID: "x", Title: "Bare"}); got != "**Bare**" {
+		t.Errorf("bare item: got %q, want %q", got, "**Bare**")
 	}
+	// A 0 count still renders (pointer distinguishes 0 from absent).
 	if got := overviewLine(wire.OverviewItem{ID: "x", Title: "Z", Count: intp(0)}); !strings.Contains(got, "(0)") {
-		t.Errorf("zero count must render (pointer distinguishes 0 from absent): got %q", got)
+		t.Errorf("zero count must render: got %q", got)
 	}
 }
 

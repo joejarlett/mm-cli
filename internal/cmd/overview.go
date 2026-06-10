@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"mm-cli/internal/apps"
 	mmhttp "mm-cli/internal/http"
 	"mm-cli/internal/wire"
 )
@@ -159,19 +160,28 @@ func renderOverview(resp wire.OverviewResp, scoped bool) string {
 	if len(slugs) == 0 {
 		return "_No apps expose an overview yet._\n"
 	}
+	// Header shows the app's tagline (from its card/registry) so the first
+	// glance answers "what is this?" — the orientation an agent needs before
+	// it picks where to drill. Dropped only when the user already named the
+	// app (scoped) and it's the sole result.
 	showHeader := !scoped || len(slugs) > 1
 	for _, slug := range slugs {
 		ov := resp.Apps[slug]
 		if showHeader {
-			fmt.Fprintf(&b, "# %s\n\n", slug)
+			if g := appGloss(slug); g != "" {
+				fmt.Fprintf(&b, "# %s — %s\n\n", slug, g)
+			} else {
+				fmt.Fprintf(&b, "# %s\n\n", slug)
+			}
 		}
 		if len(ov.Sections) == 0 {
 			b.WriteString("_(empty)_\n\n")
-			continue
 		}
 		for _, sec := range ov.Sections {
 			fmt.Fprintf(&b, "## %s", sec.Label)
-			if n := len(sec.Items); n > 0 {
+			// Auto-append the item count, unless the app's label already ends
+			// in a parenthetical (it's stated its own count/scope — don't double up).
+			if n := len(sec.Items); n > 0 && !strings.HasSuffix(sec.Label, ")") {
 				fmt.Fprintf(&b, " (%d)", n)
 			}
 			b.WriteString("\n\n")
@@ -184,11 +194,50 @@ func renderOverview(resp wire.OverviewResp, scoped bool) string {
 			}
 			b.WriteString("\n")
 		}
+		// The road out: the command to go deeper. Names are the handle (they
+		// resolve), so an agent never needs the raw id from the human view.
+		if h := overviewDrillHint(slug); h != "" {
+			b.WriteString(h + "\n\n")
+		}
 	}
 	if !scoped {
 		b.WriteString(provenanceFooter(len(slugs), "overview"))
 	}
 	return b.String()
+}
+
+// appGloss is the one-line "what is this app" tagline, taken from the registry
+// description with its redundant "Name — " prefix stripped (the slug is
+// already the header). Empty for apps the CLI doesn't know yet.
+func appGloss(slug string) string {
+	if slug == "desk" {
+		return "what you're working on (projects + threads)"
+	}
+	e, ok := apps.Registry[slug]
+	if !ok {
+		return ""
+	}
+	if i := strings.Index(e.Description, " — "); i >= 0 {
+		return e.Description[i+len(" — "):]
+	}
+	return e.Description
+}
+
+// overviewDrillHint is the road out of an app's overview — the command(s) to
+// go deeper. The CLI already has bespoke wrappers for kb/crm and a desk
+// command, so it can name the precise verb; everything else gets the
+// always-valid universal verbs. Handles are names, not ids.
+func overviewDrillHint(slug string) string {
+	switch slug {
+	case "kb":
+		return "_→ `mm kb peek \"<name>\"` (summary) · `mm kb tree \"<name>\"` (docs) · `mm kb find \"<q>\"`_"
+	case "crm":
+		return "_→ `mm crm context \"<name>\"` · `mm crm find \"<q>\"`_"
+	case "desk":
+		return "_→ `mm desk show` · `mm project detail <name>` (files)_"
+	default:
+		return fmt.Sprintf("_→ `mm %s find \"<q>\"` · `mm %s ask \"...\"`_", slug, slug)
+	}
 }
 
 // provenanceFooter tells the aggregate form's reader how many apps actually
@@ -199,17 +248,15 @@ func provenanceFooter(n int, verb string) string {
 		n, plural(n), verb)
 }
 
+// overviewLine renders one catalogue item: bold name, gloss, count. No raw id
+// — the name is the nav handle, and the machine id lives in `--json`.
 func overviewLine(it wire.OverviewItem) string {
-	parts := []string{strings.TrimSpace(it.Title)}
+	line := "**" + strings.TrimSpace(it.Title) + "**"
 	if it.Subtitle != "" {
-		parts = append(parts, "— "+it.Subtitle)
+		line += " — " + it.Subtitle
 	}
 	if it.Count != nil {
-		parts = append(parts, fmt.Sprintf("(%d)", *it.Count))
-	}
-	line := strings.Join(parts, " ")
-	if it.ID != "" {
-		line += fmt.Sprintf(" `%s`", it.ID)
+		line += fmt.Sprintf(" (%d)", *it.Count)
 	}
 	return line
 }
@@ -410,17 +457,36 @@ func stitchDeskOverview(ctx context.Context, node string) (wire.OverviewApp, boo
 	if json.NewDecoder(resp.Body).Decode(&data) != nil || len(data.Projects) == 0 {
 		return wire.OverviewApp{}, false
 	}
-	items := make([]wire.OverviewItem, 0, len(data.Projects))
+	// In the panorama, desk is "what you're working on" — so show only active
+	// projects (threads > 0), most-active first, capped. The full registered
+	// list (incl. dormant repos) stays in `mm overview desk`. No path here:
+	// it's noise at orientation time; the name is the handle.
+	active := make([]wire.AgentProject, 0, len(data.Projects))
 	for _, p := range data.Projects {
-		it := wire.OverviewItem{ID: p.ID, Title: p.Label, Subtitle: p.RootPath}
-		if p.ThreadCount != nil {
-			c := *p.ThreadCount
-			it.Count = &c
+		if p.ThreadCount != nil && *p.ThreadCount > 0 {
+			active = append(active, p)
 		}
-		items = append(items, it)
+	}
+	sort.Slice(active, func(i, j int) bool { return *active[i].ThreadCount > *active[j].ThreadCount })
+	if len(active) == 0 {
+		return wire.OverviewApp{}, false
+	}
+	const deskCap = 8
+	capped := active
+	if len(capped) > deskCap {
+		capped = capped[:deskCap]
+	}
+	items := make([]wire.OverviewItem, 0, len(capped))
+	for _, p := range capped {
+		c := *p.ThreadCount
+		items = append(items, wire.OverviewItem{ID: p.ID, Title: p.Label, Count: &c})
+	}
+	label := "Active projects"
+	if len(active) > len(capped) {
+		label = fmt.Sprintf("Active projects (top %d of %d — all: `mm overview desk`)", len(capped), len(active))
 	}
 	return wire.OverviewApp{
-		Sections: []wire.OverviewSection{{Label: "Projects", Items: items}},
+		Sections: []wire.OverviewSection{{Label: label, Items: items}},
 		Meta:     map[string]any{"app": "desk", "pull_mode": true},
 	}, true
 }

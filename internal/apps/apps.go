@@ -20,6 +20,7 @@ var Registry = map[string]Entry{
 	"crm":       {Slug: "crm", URL: "https://crm.meta-me.uk", Description: "CRM — contacts, interactions, follow-ups (multi-instance)"},
 	"finances":  {Slug: "finances", URL: "https://finances.meta-me.uk", Description: "Finances — accounts, transactions, net worth (multi-instance)"},
 	"gn":        {Slug: "gn", URL: "https://grounded.ninja", Description: "GroundedNinja — wellbeing journal, practices, reflection"},
+	"keel":      {Slug: "keel", URL: "https://keel.meta-me.uk", Description: "Keel — personal health: weight & trends, pantry, exercise, blood-test docs (multi-instance)"},
 	"analytics": {Slug: "analytics", URL: "https://analytics.meta-me.uk", Description: "Analytics — pageviews and traffic across your apps"},
 }
 
