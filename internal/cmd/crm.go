@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"mm-cli/internal/apps"
+	mmhttp "mm-cli/internal/http"
 )
 
 // NewCrmCmd builds `mm crm …`. Bespoke verbs (surface/contacts/log/…) ride
@@ -61,13 +64,92 @@ func newCrmSurfaceCmd() *cobra.Command {
 func newCrmContactsCmd() *cobra.Command {
 	c := &cobra.Command{Use: "contacts [find <q>]", Short: "List or search contacts",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) >= 2 && args[0] == "find" {
-				return crmDispatch(cmd.Context(), "find", "search", map[string]any{"query": strings.Join(args[1:], " ")})
+			if len(args) >= 1 && args[0] == "find" {
+				// By-NAME lookup over contact nodes — `contact.search`, NOT
+				// `find.search` (which is a semantic search over INTERACTIONS
+				// and so returns interaction rows, not people). `--all` opts
+				// untriaged prospects back in.
+				includeProspects := false
+				terms := make([]string, 0, len(args)-1)
+				for _, a := range args[1:] {
+					if a == "--all" {
+						includeProspects = true
+					} else {
+						terms = append(terms, a)
+					}
+				}
+				if len(terms) == 0 {
+					return fmt.Errorf("usage: mm crm contacts find <query> [--all]")
+				}
+				return crmDispatch(cmd.Context(), "contact", "search", map[string]any{
+					"query":            strings.Join(terms, " "),
+					"includeProspects": includeProspects,
+				})
 			}
-			return crmDispatch(cmd.Context(), "tree", "show", nil)
+			return renderCrmTree(cmd)
 		}}
 	c.Args = cobra.ArbitraryArgs
 	return c
+}
+
+// renderCrmTree renders `mm crm contacts` (tree.show). The RPC puts the real
+// totals in meta.counts and only a capped *preview* in meta.contacts — so the
+// generic JSON dump made the 10-row preview read as "10 contacts total" when
+// the instance actually has many more. Lead with the count header, then the
+// preview, then signpost that it's a preview.
+func renderCrmTree(cmd *cobra.Command) error {
+	app, err := apps.Resolve("crm")
+	if err != nil {
+		return err
+	}
+	client := mmhttp.New()
+	var raw json.RawMessage
+	if err := client.Rpc(cmd.Context(), app.URL, "tree", "show", nil, &raw); err != nil {
+		return err
+	}
+	if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
+		var pretty interface{}
+		_ = json.Unmarshal(raw, &pretty)
+		out, _ := json.MarshalIndent(pretty, "", "  ")
+		fmt.Printf("```json\n%s\n```\n", string(out))
+		return nil
+	}
+	var resp struct {
+		Meta struct {
+			Counts   map[string]int `json:"counts"`
+			Contacts []struct {
+				ID                  string `json:"id"`
+				Title               string `json:"title"`
+				InteractionsCount   int    `json:"interactionsCount"`
+				LastMeaningfulTouch string `json:"lastMeaningfulTouch"`
+			} `json:"contacts"`
+		} `json:"meta"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return err
+	}
+	counts := resp.Meta.Counts
+	active, prospects := counts["contact_active"], counts["contact_prospect"]
+	fmt.Printf("**%d active contact%s**", active, plural(active))
+	if prospects > 0 {
+		fmt.Printf(" · %d untriaged prospect%s in /review", prospects, plural(prospects))
+	}
+	fmt.Print("\n\n")
+	for _, c := range resp.Meta.Contacts {
+		id := c.ID
+		if len(id) > 8 {
+			id = id[:8]
+		}
+		touch := ""
+		if len(c.LastMeaningfulTouch) >= 10 {
+			touch = " · last " + c.LastMeaningfulTouch[:10]
+		}
+		fmt.Printf("- **`%s`** — %s (%d interaction%s)%s\n", id, c.Title, c.InteractionsCount, plural(c.InteractionsCount), touch)
+	}
+	if shown := len(resp.Meta.Contacts); active > shown {
+		fmt.Printf("\n_Showing the %d most-recently-touched of %d. Use `mm crm contacts find <name>` to look someone up._\n", shown, active)
+	}
+	return nil
 }
 func newCrmProjectsCmd() *cobra.Command {
 	return &cobra.Command{Use: "projects", Short: "List CRM projects", Args: cobra.NoArgs,

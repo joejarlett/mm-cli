@@ -1,6 +1,8 @@
 # mm-cli — agent notes
 
-A single-binary Go CLI for the Meta-Me platform. Authenticates via a single bearer token and communicates with onboarded services.
+A single-binary **Go** CLI for the Meta-Me platform. Authenticates via a single bearer token and communicates with onboarded services.
+
+> ⚠️ **Two trees, one is a trap.** The live `mm` binary is **Go** — every command handler is in `internal/cmd/*.go`. There is also a `src/**.ts` TypeScript tree: a **legacy parallel port** that builds a *separate, unused* `mm-ts` artifact. Grepping a command name (`contacts`, `log`, …) surfaces the `.ts` first and it reads like the source — **it is not**. Editing `src/` changes nothing in `mm`. Always fix the `.go` file. (Each `src/*.ts` now carries a banner saying so.)
 
 ## Before touching this repo, read
 
@@ -41,6 +43,10 @@ internal/
 ├── wire/             JSON protocol request/response structures
 ├── config/           Config parser (~/.config/mm/auth.json)
 └── version/          Version metadata constants
+
+src/                  ⚠️ LEGACY TypeScript port — builds the unused `mm-ts`,
+                      NOT `mm`. Do not edit to change CLI behaviour. Candidate
+                      for deletion; kept only as historical reference.
 ```
 
 ## Key Architectural Upgrades (Go Port)

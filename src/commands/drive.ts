@@ -1,3 +1,7 @@
+// ⚠️ LEGACY TYPESCRIPT PORT — NOT the live `mm` binary. The live CLI is Go;
+// this command lives in internal/cmd/. Editing this file changes nothing in
+// `mm` (it only builds the separate, unused `mm-ts`). Fix the .go file instead.
+
 /**
  * mm drive — light Drive surface: list, doc-from-markdown, rename/move.
  *
