@@ -25,7 +25,14 @@ func newChatSendCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "send [message]",
 		Short: "Drive a turn on the local agent (streams to stdout)",
-		Long:  "Use --node to target a remote agent. --new creates a fresh thread; otherwise continues the most recently updated.",
+		Long: "Drive a turn on the local agent. Use --node to target a remote agent.\n\n" +
+			"Thread selection:\n" +
+			"  --thread <id>   continue a specific thread (UUID or 6-char prefix)\n" +
+			"  --new           start a fresh thread (--title / --project optional)\n" +
+			"  (neither)       continue the MOST RECENTLY UPDATED thread\n\n" +
+			"Because the default appends to whatever thread was touched last, every\n" +
+			"send echoes its target to stderr (e.g. `→ continuing 2e8065 \"…\"`). For a\n" +
+			"one-off task that shouldn't land in an unrelated thread, pass --new.",
 		Args:  cobra.MinimumNArgs(1),
 		RunE:  runChatSend,
 	}
@@ -91,10 +98,16 @@ func runChatSend(cmd *cobra.Command, args []string) error {
 		modelID = modelFlag[sl+1:]
 	}
 
-	threadID, err := resolveSendThreadID(cmd.Context(), client, nodeFlag, isNew, threadFlag, projectFlag, title)
+	tgt, err := resolveSendThreadID(cmd.Context(), client, nodeFlag, isNew, threadFlag, projectFlag, title)
 	if err != nil {
 		return err
 	}
+	threadID := tgt.ID
+
+	// Echo which thread this send landed in, so the target is never a silent
+	// guess (the default continues the most-recently-updated thread). Goes to
+	// stderr to keep stdout reserved for the streamed turn / --json payload.
+	echoSendTarget(tgt)
 
 	// Prepare initial send payload
 	payload := map[string]any{"type": "send", "threadId": threadID, "content": message}
@@ -299,14 +312,47 @@ func streamWSWithReconnect(ctx context.Context, client *mmhttp.Client, wsURL str
 	}
 }
 
+// sendTarget describes the thread a send resolved to, so the caller can echo
+// it. Title may be empty when the agent didn't return one (e.g. an untitled
+// --new thread); the echo falls back to the id alone in that case.
+type sendTarget struct {
+	ID    string
+	Title string
+	IsNew bool
+}
+
+// echoSendTarget prints a one-line confirmation of where a send landed, to
+// stderr (stdout is reserved for the streamed turn). Mirrors the `→` prefix
+// used elsewhere for refs in the desk overview.
+func echoSendTarget(t sendTarget) {
+	id6 := t.ID
+	if len(id6) > 6 {
+		id6 = id6[:6]
+	}
+	verb := "continuing"
+	if t.IsNew {
+		verb = "new thread"
+	}
+	if title := strings.Join(strings.Fields(t.Title), " "); title != "" {
+		fmt.Fprintf(os.Stderr, "→ %s %s %q\n", verb, id6, truncString(title, 48))
+	} else {
+		fmt.Fprintf(os.Stderr, "→ %s %s\n", verb, id6)
+	}
+}
+
 // resolveSendThreadID figures out which thread to send to: --thread <id>,
-// --new (creates one), or continues the most recently updated.
+// --new (creates one), or continues the most recently updated. It returns the
+// resolved thread (id + title where cheaply known) so the caller can echo it.
 func resolveSendThreadID(
 	ctx context.Context, client *mmhttp.Client,
 	nodeFlag string, isNew bool, threadFlag, projectFlag, title string,
-) (string, error) {
+) (sendTarget, error) {
 	if threadFlag != "" {
-		return resolveThreadID(ctx, client, nodeFlag, threadFlag)
+		id, t, err := resolveThreadWithTitle(ctx, client, nodeFlag, threadFlag)
+		if err != nil {
+			return sendTarget{}, err
+		}
+		return sendTarget{ID: id, Title: t}, nil
 	}
 	if isNew {
 		body := map[string]any{}
@@ -323,20 +369,26 @@ func resolveSendThreadID(
 			ContentType: "application/json",
 		})
 		if err != nil {
-			return "", err
+			return sendTarget{}, err
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode/100 != 2 {
 			b, _ := io.ReadAll(resp.Body)
-			return "", fmt.Errorf("POST /api/threads %d: %s", resp.StatusCode, truncString(string(b), 200))
+			return sendTarget{}, fmt.Errorf("POST /api/threads %d: %s", resp.StatusCode, truncString(string(b), 200))
 		}
 		var data struct {
-			ID string `json:"id"`
+			ID    string `json:"id"`
+			Title string `json:"title"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-			return "", err
+			return sendTarget{}, err
 		}
-		return data.ID, nil
+		// Prefer the server's title; fall back to the --title flag we sent.
+		respTitle := data.Title
+		if respTitle == "" {
+			respTitle = title
+		}
+		return sendTarget{ID: data.ID, Title: respTitle, IsNew: true}, nil
 	}
 	// Continue most recently updated.
 	q := url.Values{}
@@ -346,23 +398,70 @@ func resolveSendThreadID(
 	}
 	resp, err := client.AgentFetch(ctx, nodeFlag, "/api/threads?"+q.Encode(), nil)
 	if err != nil {
-		return "", err
+		return sendTarget{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 404 && projectFlag != "" {
-		return "", fmt.Errorf("project '%s' not found", projectFlag)
+		return sendTarget{}, fmt.Errorf("project '%s' not found", projectFlag)
 	}
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("GET /api/threads %d", resp.StatusCode)
+		return sendTarget{}, fmt.Errorf("GET /api/threads %d", resp.StatusCode)
 	}
 	var data wire.AgentThreadsListResp
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", err
+		return sendTarget{}, err
 	}
 	if len(data.Threads) == 0 {
-		return "", fmt.Errorf("no existing thread to continue. Pass --new to create one.")
+		return sendTarget{}, fmt.Errorf("no existing thread to continue. Pass --new to create one.")
 	}
-	return data.Threads[0].ID, nil
+	return sendTarget{ID: data.Threads[0].ID, Title: data.Threads[0].Title}, nil
+}
+
+// resolveThreadWithTitle resolves a --thread arg (UUID or prefix) to a full id
+// and, when it can do so without an extra round-trip, the thread title. The
+// threads list is fetched anyway for prefix matches and to look the title up.
+func resolveThreadWithTitle(ctx context.Context, client *mmhttp.Client, node, arg string) (string, string, error) {
+	resp, err := client.AgentFetch(ctx, node, "/api/threads?limit=1000", nil)
+	if err != nil {
+		// Fall back to the id-only resolver so a list failure never blocks a send.
+		id, rerr := resolveThreadID(ctx, client, node, arg)
+		return id, "", rerr
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		id, rerr := resolveThreadID(ctx, client, node, arg)
+		return id, "", rerr
+	}
+	var data wire.AgentThreadsListResp
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		id, rerr := resolveThreadID(ctx, client, node, arg)
+		return id, "", rerr
+	}
+
+	if uuidRe.MatchString(arg) {
+		for _, t := range data.Threads {
+			if t.ID == arg {
+				return t.ID, t.Title, nil
+			}
+		}
+		return arg, "", nil // valid UUID not in the recent list; send still works
+	}
+	if len(arg) < 4 {
+		return "", "", fmt.Errorf("thread prefix '%s' is too short (need ≥4 chars)", arg)
+	}
+	var matches []wire.AgentThread
+	for _, t := range data.Threads {
+		if strings.HasPrefix(t.ID, strings.ToLower(arg)) {
+			matches = append(matches, t)
+		}
+	}
+	switch len(matches) {
+	case 0:
+		return "", "", fmt.Errorf("thread not found: %s", arg)
+	case 1:
+		return matches[0].ID, matches[0].Title, nil
+	}
+	return "", "", fmt.Errorf("thread prefix '%s' is ambiguous (%d matches)", arg, len(matches))
 }
 
 var uuidRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
