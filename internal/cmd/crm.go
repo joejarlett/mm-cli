@@ -166,7 +166,7 @@ func newCrmLogCmd() *cobra.Command {
 func newCrmContextCmd() *cobra.Command {
 	return &cobra.Command{Use: "context [person]", Short: "Person context", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "contact", "context", map[string]any{"target": args[0]})
+			return crmDispatch(cmd.Context(), "contact", "context", map[string]any{"person": args[0]})
 		}}
 }
 func newCrmPeekCmd() *cobra.Command {
