@@ -2,6 +2,8 @@
 
 Living spec for aligning `mm` with the meta-me cross-app contract so every app on the platform is reachable through a small, agent-intuitive verb set.
 
+> ⚠️ Historical: sections that reference `src/*.ts` (`src/apps.ts`, `src/commands/*.ts`, `src/index.ts`, …) describe the **original TypeScript CLI, deleted 2026-06-11**. The live implementation is Go in `internal/cmd/*.go`. The *design* still holds; only those file paths are stale.
+
 **Legend:** `[x]` shipped, `[~]` in progress, `[ ]` pending.
 
 ---
