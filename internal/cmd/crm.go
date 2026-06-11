@@ -29,7 +29,7 @@ func NewCrmCmd() *cobra.Command {
 		if len(args) < 2 {
 			return cmd.Help()
 		}
-		return crmDispatch(cmd.Context(), args[0], args[1], parseKV(args[2:]))
+		return crmDispatch(cmd,args[0], args[1], parseKV(args[2:]))
 	}
 	return c
 }
@@ -81,7 +81,7 @@ func newCrmContactsCmd() *cobra.Command {
 				if len(terms) == 0 {
 					return fmt.Errorf("usage: mm crm contacts find <query> [--all]")
 				}
-				return crmDispatch(cmd.Context(), "contact", "search", map[string]any{
+				return crmDispatch(cmd,"contact", "search", map[string]any{
 					"query":            strings.Join(terms, " "),
 					"includeProspects": includeProspects,
 				})
@@ -111,7 +111,7 @@ func renderCrmTree(cmd *cobra.Command) error {
 		var pretty interface{}
 		_ = json.Unmarshal(raw, &pretty)
 		out, _ := json.MarshalIndent(pretty, "", "  ")
-		fmt.Printf("```json\n%s\n```\n", string(out))
+		fmt.Println(string(out))
 		return nil
 	}
 	var resp struct {
@@ -154,40 +154,69 @@ func renderCrmTree(cmd *cobra.Command) error {
 func newCrmProjectsCmd() *cobra.Command {
 	return &cobra.Command{Use: "projects", Short: "List CRM projects", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "project", "list", nil)
+			return crmDispatch(cmd,"project", "list", nil)
 		}}
 }
 func newCrmLogCmd() *cobra.Command {
 	return &cobra.Command{Use: "log [text]", Short: "Log an interaction", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "interaction", "log", map[string]any{"text": strings.Join(args, " ")})
+			return crmDispatch(cmd,"interaction", "log", map[string]any{"text": strings.Join(args, " ")})
 		}}
 }
 func newCrmContextCmd() *cobra.Command {
 	return &cobra.Command{Use: "context [person]", Short: "Person context", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "contact", "context", map[string]any{"person": args[0]})
+			return crmDispatch(cmd,"contact", "context", map[string]any{"person": args[0]})
 		}}
 }
 func newCrmPeekCmd() *cobra.Command {
 	return &cobra.Command{Use: "peek [id]", Short: "Preview anything", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "peek", "show", map[string]any{"target": args[0]})
+			return crmDispatch(cmd,"peek", "show", map[string]any{"target": args[0]})
 		}}
 }
 func newCrmReadCmd() *cobra.Command {
 	return &cobra.Command{Use: "read [id]", Short: "Full content", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "read", "show", map[string]any{"target": args[0]})
+			return crmDispatch(cmd,"read", "show", map[string]any{"target": args[0]})
 		}}
 }
 func newCrmFindCmd() *cobra.Command {
 	return &cobra.Command{Use: "find [query]", Short: "Search the CRM", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd.Context(), "find", "search", map[string]any{"query": strings.Join(args, " ")})
+			return crmDispatch(cmd,"find", "search", map[string]any{"query": strings.Join(args, " ")})
 		}}
 }
 
-func crmDispatch(ctx context.Context, feature, action string, payload map[string]any) error {
-	return doRpcAndRender(ctx, "crm", feature, action, payload)
+// crmDispatch routes a crm RPC. With --json it dumps the raw envelope
+// (parseable, no markdown) per the repo's "all query commands support --json"
+// rule; otherwise it renders markdown via the shared renderer.
+func crmDispatch(cmd *cobra.Command, feature, action string, payload map[string]any) error {
+	if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
+		return rpcDumpJSON(cmd.Context(), "crm", feature, action, payload)
+	}
+	return doRpcAndRender(cmd.Context(), "crm", feature, action, payload)
+}
+
+// rpcDumpJSON runs an RPC and prints the indented envelope to stdout. House
+// style (see calendar.go): raw JSON, no ```json fences — fences would break
+// piping into jq.
+func rpcDumpJSON(ctx context.Context, slug, feature, action string, payload map[string]any) error {
+	app, err := apps.Resolve(slug)
+	if err != nil {
+		return err
+	}
+	client := mmhttp.New()
+	var raw json.RawMessage
+	if err := client.Rpc(ctx, app.URL, feature, action, payload, &raw); err != nil {
+		return err
+	}
+	var pretty interface{}
+	if err := json.Unmarshal(raw, &pretty); err != nil {
+		fmt.Println(string(raw))
+		return nil
+	}
+	out, _ := json.MarshalIndent(pretty, "", "  ")
+	fmt.Println(string(out))
+	return nil
 }
