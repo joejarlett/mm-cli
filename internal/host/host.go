@@ -204,12 +204,27 @@ func respond(w http.ResponseWriter, code int, v any) {
 	w.Write(body)
 }
 
+// ParsePeers splits a comma-separated ssh-host list ("m4,jj-server").
+func ParsePeers(env string) []string {
+	var peers []string
+	for _, p := range strings.Split(env, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			peers = append(peers, p)
+		}
+	}
+	return peers
+}
+
 // Serve starts the telemetry API on 127.0.0.1:port, gated by the X-API-Token
-// header against token. peer, when non-empty, is the ssh host whose own agent
-// backs the /peer/* relay routes. wake holds the WoL targets for /wake routes.
+// header against token. peers are the ssh hosts whose own agents back the
+// /peers/{name}/* relay routes. wake holds the WoL targets for /wake routes.
 // Blocks until ctx is cancelled.
-func Serve(ctx context.Context, port int, token, peer string, wake map[string]WakeTarget) error {
+func Serve(ctx context.Context, port int, token string, peers []string, wake map[string]WakeTarget) error {
 	mux := http.NewServeMux()
+	peerSet := map[string]bool{}
+	for _, p := range peers {
+		peerSet[p] = true
+	}
 
 	guard := func(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -243,25 +258,27 @@ func Serve(ctx context.Context, port int, token, peer string, wake map[string]Wa
 		respond(w, http.StatusOK, map[string][]Service{"services": list})
 	}))
 
-	// Peer relay — /peer/{system,containers,services} mirror the local routes
-	// for the other machine. Always 200 with { peer, reachable } so the
-	// dashboard renders "unreachable" rather than a hard error.
-	mux.HandleFunc("GET /peer/{sub}", guard(func(w http.ResponseWriter, r *http.Request) {
-		sub := r.PathValue("sub")
+	// Peer relay — /peers/{name}/{system,containers,services} mirror the local
+	// routes for each configured peer machine. The name must be in the
+	// configured list (it becomes an ssh target — never accept arbitrary input).
+	// Always 200 with { peer, reachable } so the dashboard renders
+	// "unreachable" rather than a hard error.
+	mux.HandleFunc("GET /peers/{name}/{sub}", guard(func(w http.ResponseWriter, r *http.Request) {
+		name, sub := r.PathValue("name"), r.PathValue("sub")
+		if !peerSet[name] {
+			respond(w, http.StatusNotFound, map[string]string{"error": "unknown peer"})
+			return
+		}
 		if sub != "system" && sub != "containers" && sub != "services" {
 			respond(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
-		if peer == "" {
-			respond(w, http.StatusOK, map[string]any{"peer": "", "reachable": false, "error": "no peer configured"})
-			return
-		}
-		data, err := peerFetch(peer, token, "/"+sub)
+		data, err := peerFetch(name, token, "/"+sub)
 		if err != nil {
-			respond(w, http.StatusOK, map[string]any{"peer": peer, "reachable": false, "error": err.Error()})
+			respond(w, http.StatusOK, map[string]any{"peer": name, "reachable": false, "error": err.Error()})
 			return
 		}
-		data["peer"] = peer
+		data["peer"] = name
 		data["reachable"] = true
 		respond(w, http.StatusOK, data)
 	}))

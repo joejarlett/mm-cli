@@ -56,17 +56,20 @@ func newHostServeCmd() *cobra.Command {
 				return fmt.Errorf("no API token — pass --token or set API_TOKEN")
 			}
 			if peer == "" {
-				peer = os.Getenv("PEER_HOST")
+				peer = os.Getenv("PEERS")
+			}
+			if peer == "" {
+				peer = os.Getenv("PEER_HOST") // back-compat single-peer form
 			}
 			if wake == "" {
 				wake = os.Getenv("WAKE_TARGETS")
 			}
-			return host.Serve(cmd.Context(), port, token, peer, host.ParseWakeTargets(wake))
+			return host.Serve(cmd.Context(), port, token, host.ParsePeers(peer), host.ParseWakeTargets(wake))
 		},
 	}
 	c.Flags().IntVar(&port, "port", 8889, "port to listen on (bound to 127.0.0.1)")
 	c.Flags().StringVar(&token, "token", "", "API token clients must send as X-API-Token (default: $API_TOKEN)")
-	c.Flags().StringVar(&peer, "peer", "", "ssh host whose agent backs /peer/* relay routes (default: $PEER_HOST)")
+	c.Flags().StringVar(&peer, "peers", "", `comma-separated ssh hosts backing /peers/{name}/* relay routes (default: $PEERS, then $PEER_HOST)`)
 	c.Flags().StringVar(&wake, "wake", "", `WoL targets "name=mac@probeAddr,..." (default: $WAKE_TARGETS)`)
 	return c
 }
