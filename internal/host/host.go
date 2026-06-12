@@ -206,8 +206,9 @@ func respond(w http.ResponseWriter, code int, v any) {
 
 // Serve starts the telemetry API on 127.0.0.1:port, gated by the X-API-Token
 // header against token. peer, when non-empty, is the ssh host whose own agent
-// backs the /peer/* relay routes. Blocks until ctx is cancelled.
-func Serve(ctx context.Context, port int, token, peer string) error {
+// backs the /peer/* relay routes. wake holds the WoL targets for /wake routes.
+// Blocks until ctx is cancelled.
+func Serve(ctx context.Context, port int, token, peer string, wake map[string]WakeTarget) error {
 	mux := http.NewServeMux()
 
 	guard := func(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
@@ -263,6 +264,40 @@ func Serve(ctx context.Context, port int, token, peer string) error {
 		data["peer"] = peer
 		data["reachable"] = true
 		respond(w, http.StatusOK, data)
+	}))
+
+	// Wake-on-LAN — GET /wake lists targets with awake probes; GET /wake/{name}
+	// probes one; POST /wake/{name} broadcasts the magic packet.
+	mux.HandleFunc("GET /wake", guard(func(w http.ResponseWriter, r *http.Request) {
+		type status struct {
+			Name  string `json:"name"`
+			Awake bool   `json:"awake"`
+		}
+		out := []status{}
+		for _, t := range wake {
+			out = append(out, status{Name: t.Name, Awake: ProbeAwake(t.Probe)})
+		}
+		respond(w, http.StatusOK, map[string]any{"targets": out})
+	}))
+	mux.HandleFunc("GET /wake/{name}", guard(func(w http.ResponseWriter, r *http.Request) {
+		t, ok := wake[r.PathValue("name")]
+		if !ok {
+			respond(w, http.StatusNotFound, map[string]string{"error": "unknown wake target"})
+			return
+		}
+		respond(w, http.StatusOK, map[string]any{"name": t.Name, "awake": ProbeAwake(t.Probe)})
+	}))
+	mux.HandleFunc("POST /wake/{name}", guard(func(w http.ResponseWriter, r *http.Request) {
+		t, ok := wake[r.PathValue("name")]
+		if !ok {
+			respond(w, http.StatusNotFound, map[string]string{"error": "unknown wake target"})
+			return
+		}
+		if err := Wake(t.Mac); err != nil {
+			respond(w, http.StatusInternalServerError, ActionResult{Ok: false, Error: err.Error()})
+			return
+		}
+		respond(w, http.StatusOK, map[string]any{"ok": true, "name": t.Name, "mac": t.Mac})
 	}))
 
 	// Actions — restart/stop/start a container, restart/start a service.
