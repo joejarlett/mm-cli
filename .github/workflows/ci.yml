@@ -1,0 +1,37 @@
+name: CI
+
+# Releases are built and published out-of-band by scripts/release.sh, which
+# cross-compiles the Go binaries and stages them to meta-me.uk/static/dist/mm.
+# This workflow only verifies the code compiles, vets, and tests on every
+# push/PR — it uploads NO artifacts, so it consumes no Actions storage.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile check
+        run: |
+          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64; do
+            os="${target%/*}"; arch="${target#*/}"
+            echo "build $os/$arch"
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -o /dev/null ./cmd/mm
+          done

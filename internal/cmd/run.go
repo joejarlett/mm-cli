@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -42,9 +41,7 @@ var (
 			c.Stdin = os.Stdin
 			return c.Run()
 		}
-		c.SysProcAttr = &syscall.SysProcAttr{
-			Setsid: true,
-		}
+		c.SysProcAttr = detachSysProcAttr()
 		return c.Start()
 	}
 )

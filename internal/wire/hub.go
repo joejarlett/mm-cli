@@ -179,6 +179,36 @@ type HubDriveUpdateResp struct {
 	WebViewLink  *string  `json:"webViewLink"`
 }
 
+type HubDriveExportReq struct {
+	FileID      string `json:"fileId"`
+	MimeType    string `json:"mimeType,omitempty"`
+	AccountSlug string `json:"accountSlug,omitempty"`
+}
+
+type HubDriveExportResp struct {
+	Content  string `json:"content"`
+	MimeType string `json:"mimeType"`
+}
+
+type HubDriveGetReq struct {
+	FileID      string `json:"fileId"`
+	AccountSlug string `json:"accountSlug,omitempty"`
+}
+
+type HubDriveGetResp struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	MimeType     string   `json:"mimeType"`
+	ModifiedTime string   `json:"modifiedTime,omitempty"`
+	WebViewLink  string   `json:"webViewLink,omitempty"`
+	Parents      []string `json:"parents,omitempty"`
+	Size         string   `json:"size,omitempty"`
+}
+
+type HubDriveDownloadResp struct {
+	Content string `json:"content"`
+}
+
 // ─── Email — platform outbound log (admin) ─────────────────────────────
 
 type HubEmailLogRow struct {

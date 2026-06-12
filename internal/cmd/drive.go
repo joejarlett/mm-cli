@@ -16,9 +16,49 @@ import (
 
 // NewDriveCmd builds the `mm drive` tree.
 func NewDriveCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "drive", Short: "Google Drive — list, doc-from-markdown, rename/move"}
-	cmd.AddCommand(newDriveListCmd(), newDriveDocCmd(), newDriveMoveCmd())
+	cmd := &cobra.Command{Use: "drive", Short: "Google Drive — list, read, doc-from-markdown, rename/move"}
+	cmd.AddCommand(newDriveListCmd(), newDriveReadCmd(), newDriveGetCmd(), newDriveDownloadCmd(), newDriveDocCmd(), newDriveMoveCmd())
 	return cmd
+}
+
+func newDriveReadCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "read [id|url]",
+		Short: "Read (export) a Google Doc/Sheet/Slide as text",
+		Long: "Export a Google-native file's body to text and print it (or write it with --out).\n" +
+			"Accepts a bare file id or a pasted Docs/Sheets/Slides URL.\n\n" +
+			"Formats: txt (default), html, pdf (use with --out). md is accepted but the\n" +
+			"current gateway export path returns 503 for text/markdown — use txt for now.",
+		Args: cobra.ExactArgs(1),
+		RunE: runDriveRead,
+	}
+	c.Flags().String("as", "txt", "Export format: txt|html|pdf|md (md needs backend support — see note)")
+	c.Flags().String("out", "", "Write to this path instead of stdout")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func newDriveGetCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "get [id|url]",
+		Short: "Show file metadata (name, type, size, parents)",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDriveGet,
+	}
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func newDriveDownloadCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "download [id|url]",
+		Short: "Download a non-Google file's raw content (PDF, .md, .csv …)",
+		Args:  cobra.ExactArgs(1),
+		RunE:  runDriveDownload,
+	}
+	c.Flags().String("out", "", "Write to this path instead of stdout")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
 }
 
 func newDriveListCmd() *cobra.Command {
@@ -161,6 +201,112 @@ func runDriveDoc(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func runDriveRead(cmd *cobra.Command, args []string) error {
+	id := driveFileID(args[0])
+	asFlag, _ := cmd.Flags().GetString("as")
+	outPath, _ := cmd.Flags().GetString("out")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	mime, err := mimeForAs(asFlag)
+	if err != nil {
+		return err
+	}
+	req := map[string]any{"fileId": id, "mimeType": mime}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	client := http.New()
+	var resp wire.HubDriveExportResp
+	if err := client.Hub(cmd.Context(), "drive", "export", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	if outPath != "" {
+		if err := os.WriteFile(outPath, []byte(resp.Content), 0o644); err != nil {
+			return fmt.Errorf("Couldn't write %s: %w", outPath, err)
+		}
+		fmt.Fprintf(os.Stderr, "✓ Wrote %s (%s)\n", outPath, resp.MimeType)
+		return nil
+	}
+	fmt.Print(resp.Content)
+	return nil
+}
+
+func runDriveGet(cmd *cobra.Command, args []string) error {
+	id := driveFileID(args[0])
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	req := map[string]any{
+		"fileId": id,
+		"fields": "id,name,mimeType,modifiedTime,webViewLink,parents,size",
+	}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	client := http.New()
+	var resp wire.HubDriveGetResp
+	if err := client.Hub(cmd.Context(), "drive", "get", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	fmt.Printf("%s\n", resp.Name)
+	fmt.Printf("  type:     %s\n", mimeLabel(resp.MimeType))
+	if resp.Size != "" {
+		fmt.Printf("  size:     %s\n", resp.Size)
+	}
+	if resp.ModifiedTime != "" {
+		fmt.Printf("  modified: %s\n", fmtWhen(resp.ModifiedTime))
+	}
+	if resp.WebViewLink != "" {
+		fmt.Printf("  link:     %s\n", resp.WebViewLink)
+	}
+	if len(resp.Parents) > 0 {
+		fmt.Printf("  parents:  %s\n", strings.Join(resp.Parents, ", "))
+	}
+	return nil
+}
+
+func runDriveDownload(cmd *cobra.Command, args []string) error {
+	id := driveFileID(args[0])
+	outPath, _ := cmd.Flags().GetString("out")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	req := map[string]any{"fileId": id}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	client := http.New()
+	var resp wire.HubDriveDownloadResp
+	if err := client.Hub(cmd.Context(), "drive", "download", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	if outPath != "" {
+		if err := os.WriteFile(outPath, []byte(resp.Content), 0o644); err != nil {
+			return fmt.Errorf("Couldn't write %s: %w", outPath, err)
+		}
+		fmt.Fprintf(os.Stderr, "✓ Wrote %s\n", outPath)
+		return nil
+	}
+	fmt.Print(resp.Content)
+	return nil
+}
+
 func runDriveMove(cmd *cobra.Command, args []string) error {
 	id := args[0]
 	name, _ := cmd.Flags().GetString("name")
@@ -246,9 +392,50 @@ func mimeLabel(m string) string {
 	return m
 }
 
-func padLeft(s string, n int) string {
-	if len(s) >= n {
+// mimeForAs maps the --as shorthand to an export mime type.
+func mimeForAs(as string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(as)) {
+	case "", "md", "markdown":
+		return "text/markdown", nil
+	case "txt", "text", "plain":
+		return "text/plain", nil
+	case "html":
+		return "text/html", nil
+	case "pdf":
+		return "application/pdf", nil
+	}
+	// Escape hatch: accept a full mime literal (e.g. an office export mime).
+	if strings.Contains(as, "/") {
+		return as, nil
+	}
+	return "", fmt.Errorf("unknown --as %q (use md|txt|html|pdf, or a full mime type)", as)
+}
+
+// driveFileID accepts a bare id or a pasted Drive/Docs URL and returns the id.
+// e.g. https://docs.google.com/document/d/<id>/edit → <id>
+func driveFileID(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.Contains(s, "/") {
 		return s
 	}
-	return strings.Repeat(" ", n-len(s)) + s
+	// .../d/<id>/... form (Docs, Sheets, Slides, Drive file links)
+	if i := strings.Index(s, "/d/"); i >= 0 {
+		rest := s[i+3:]
+		if j := strings.IndexByte(rest, '/'); j >= 0 {
+			rest = rest[:j]
+		}
+		if j := strings.IndexAny(rest, "?#"); j >= 0 {
+			rest = rest[:j]
+		}
+		return rest
+	}
+	// ...?id=<id> form (open?id=, uc?id=)
+	if i := strings.Index(s, "id="); i >= 0 {
+		rest := s[i+3:]
+		if j := strings.IndexAny(rest, "&#"); j >= 0 {
+			rest = rest[:j]
+		}
+		return rest
+	}
+	return s
 }
