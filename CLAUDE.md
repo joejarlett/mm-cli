@@ -22,6 +22,9 @@ go run ./cmd/mm <args>                   # run directly via Go
 go test ./...                            # run all Go tests
 go build -o mm ./cmd/mm                  # build the release binary
 cp mm ~/.local/bin/mm
+
+# Package & install the macOS menu bar tray app (MetaMe Tray.app)
+./scripts/build-tray.sh
 ```
 
 ## Source map
