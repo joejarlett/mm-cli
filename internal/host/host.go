@@ -205,8 +205,9 @@ func respond(w http.ResponseWriter, code int, v any) {
 }
 
 // Serve starts the telemetry API on 127.0.0.1:port, gated by the X-API-Token
-// header against token. Blocks until ctx is cancelled.
-func Serve(ctx context.Context, port int, token string) error {
+// header against token. peer, when non-empty, is the ssh host whose own agent
+// backs the /peer/* relay routes. Blocks until ctx is cancelled.
+func Serve(ctx context.Context, port int, token, peer string) error {
 	mux := http.NewServeMux()
 
 	guard := func(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
@@ -219,19 +220,82 @@ func Serve(ctx context.Context, port int, token string) error {
 		}
 	}
 
-	mux.HandleFunc("/system", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /system", guard(func(w http.ResponseWriter, r *http.Request) {
 		respond(w, http.StatusOK, Snapshot())
 	}))
-	mux.HandleFunc("/containers", guard(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /containers", guard(func(w http.ResponseWriter, r *http.Request) {
 		list, err := Containers()
 		if err != nil {
 			respond(w, http.StatusServiceUnavailable, map[string]string{"error": "docker unavailable", "detail": err.Error()})
 			return
 		}
+		if list == nil {
+			list = []Container{} // marshal as [] not null on empty hosts
+		}
 		respond(w, http.StatusOK, map[string][]Container{"containers": list})
 	}))
-	mux.HandleFunc("/services", guard(func(w http.ResponseWriter, r *http.Request) {
-		respond(w, http.StatusOK, map[string][]Service{"services": Services()})
+	mux.HandleFunc("GET /services", guard(func(w http.ResponseWriter, r *http.Request) {
+		list := Services()
+		if list == nil {
+			list = []Service{} // marshal as [] not null on empty hosts
+		}
+		respond(w, http.StatusOK, map[string][]Service{"services": list})
+	}))
+
+	// Peer relay — /peer/{system,containers,services} mirror the local routes
+	// for the other machine. Always 200 with { peer, reachable } so the
+	// dashboard renders "unreachable" rather than a hard error.
+	mux.HandleFunc("GET /peer/{sub}", guard(func(w http.ResponseWriter, r *http.Request) {
+		sub := r.PathValue("sub")
+		if sub != "system" && sub != "containers" && sub != "services" {
+			respond(w, http.StatusNotFound, map[string]string{"error": "not found"})
+			return
+		}
+		if peer == "" {
+			respond(w, http.StatusOK, map[string]any{"peer": "", "reachable": false, "error": "no peer configured"})
+			return
+		}
+		data, err := peerFetch(peer, token, "/"+sub)
+		if err != nil {
+			respond(w, http.StatusOK, map[string]any{"peer": peer, "reachable": false, "error": err.Error()})
+			return
+		}
+		data["peer"] = peer
+		data["reachable"] = true
+		respond(w, http.StatusOK, data)
+	}))
+
+	// Actions — restart/stop/start a container, restart/start a service.
+	// Protected names refuse with 403, matching infra-api.mjs.
+	actionCode := func(res ActionResult) int {
+		switch {
+		case res.Ok:
+			return http.StatusOK
+		case strings.HasPrefix(res.Error, "protected"):
+			return http.StatusForbidden
+		case res.Error == "unknown action" || res.Error == "invalid name":
+			return http.StatusBadRequest
+		default:
+			return http.StatusInternalServerError
+		}
+	}
+	mux.HandleFunc("POST /containers/{name}/{action}", guard(func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		if !nameRe.MatchString(name) {
+			respond(w, http.StatusBadRequest, ActionResult{Ok: false, Error: "invalid name"})
+			return
+		}
+		res := ContainerAction(name, r.PathValue("action"))
+		respond(w, actionCode(res), res)
+	}))
+	mux.HandleFunc("POST /services/{label}/{action}", guard(func(w http.ResponseWriter, r *http.Request) {
+		label := r.PathValue("label")
+		if !nameRe.MatchString(label) {
+			respond(w, http.StatusBadRequest, ActionResult{Ok: false, Error: "invalid name"})
+			return
+		}
+		res := ServiceAction(label, r.PathValue("action"))
+		respond(w, actionCode(res), res)
 	}))
 
 	srv := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", port), Handler: mux}

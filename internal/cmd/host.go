@@ -28,7 +28,7 @@ works on the Macs and on Linux boxes (jj-server, fedora).`,
 
 func newHostServeCmd() *cobra.Command {
 	var port int
-	var token string
+	var token, peer string
 	c := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve host telemetry over a token-gated HTTP API (127.0.0.1)",
@@ -40,10 +40,14 @@ func newHostServeCmd() *cobra.Command {
 			if token == "" {
 				return fmt.Errorf("no API token — pass --token or set API_TOKEN")
 			}
-			return host.Serve(cmd.Context(), port, token)
+			if peer == "" {
+				peer = os.Getenv("PEER_HOST")
+			}
+			return host.Serve(cmd.Context(), port, token, peer)
 		},
 	}
 	c.Flags().IntVar(&port, "port", 8889, "port to listen on (bound to 127.0.0.1)")
 	c.Flags().StringVar(&token, "token", "", "API token clients must send as X-API-Token (default: $API_TOKEN)")
+	c.Flags().StringVar(&peer, "peer", "", "ssh host whose agent backs /peer/* relay routes (default: $PEER_HOST)")
 	return c
 }
