@@ -128,6 +128,7 @@ output. Start with 'mm cards' to see every app, or 'mm <app> --help'.`,
 
 	// CLI & admin — manage the tool itself + privileged hub ops.
 	add(grpSystem, admin.NewAdminCmd())
+	add(grpSystem, cmd.NewHostCmd())
 	add(grpSystem, cmd.NewFeedbackCmd())
 	add(grpSystem, cmd.NewSttCmd())
 	add(grpSystem, cmd.NewTtsCmd())
