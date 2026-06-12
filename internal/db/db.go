@@ -35,8 +35,11 @@ func Pool(ctx context.Context) (*pgxpool.Pool, error) {
 	pcfg.MinConns = 0
 	pcfg.MaxConnIdleTime = 10 * time.Second
 	pcfg.ConnConfig.ConnectTimeout = 5 * time.Second
-	// SSL: rejectUnauthorized:false for non-localhost (matches TS).
-	if !strings.Contains(url, "localhost") && !strings.Contains(url, "127.0.0.1") {
+	// SSL: rejectUnauthorized:false for non-localhost (matches TS), but honour
+	// an explicit sslmode=disable — the M4→M1 hop rides Tailscale/WireGuard and
+	// the M1's postgres doesn't speak TLS (mirrors the cli/mm.ts cutover patch).
+	if !strings.Contains(url, "localhost") && !strings.Contains(url, "127.0.0.1") &&
+		!strings.Contains(url, "sslmode=disable") {
 		pcfg.ConnConfig.TLSConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	p, err := pgxpool.NewWithConfig(ctx, pcfg)
