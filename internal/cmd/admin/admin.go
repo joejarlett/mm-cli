@@ -17,10 +17,16 @@ import (
 	"mm-cli/internal/db"
 )
 
-// NewAdminCmd builds the `mm admin` tree.
+// NewAdminCmd builds the `mm admin` tree. This is the full direct-DB admin
+// surface, absorbed from the retired TS `mm-admin` (meta-me.uk/cli/mm.ts) —
+// same trust boundary (needs MM_DATABASE_URL on the box, no API hop).
 func NewAdminCmd() *cobra.Command {
-	c := &cobra.Command{Use: "admin", Short: "Hub admin verbs (sql / apps / health / errors)"}
-	c.AddCommand(newSqlCmd(), newAppsCmd(), newAppCmd(), newHealthCmd(), newErrorsCmd(), newErrorCmd())
+	c := &cobra.Command{Use: "admin", Short: "Hub admin verbs (sql / health / errors / feedback / users / digest / docs)"}
+	c.AddCommand(
+		newSqlCmd(), newAppsCmd(), newAppCmd(), newHealthCmd(), newErrorsCmd(), newErrorCmd(),
+		newFeedbackCmd(), newUsersCmd(), newUserCmd(), newInviteCmd(), newGrantCmd(), newRevokeCmd(), newRoleCmd(),
+		newDigestCmd(), newDocsCmd(), newDocCmd(),
+	)
 	return c
 }
 
