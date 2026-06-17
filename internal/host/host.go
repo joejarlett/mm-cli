@@ -287,10 +287,12 @@ func ParsePeers(env string) []string {
 	return peers
 }
 
-// Serve starts the telemetry API on 127.0.0.1:port, gated by the X-API-Token
-// header against token. peers are the ssh hosts whose own agents back the
-// /peers/{name}/* relay routes. wake holds the WoL targets for /wake routes.
-// Blocks until ctx is cancelled.
+// Serve starts the telemetry API on :port (all interfaces), gated by the
+// X-API-Token header against token. Binding the tailnet (not just loopback) lets
+// the home dashboard probe every node's agent directly over the trusted tailnet —
+// same posture as postgres :5432 — so a node served from either jj or M1 can read
+// both nodes without the ssh peer-relay. peers still back the /peers/{name}/*
+// routes (used by the Macs); wake holds the WoL targets. Blocks until ctx cancelled.
 func Serve(ctx context.Context, port int, token string, peers []string, wake map[string]WakeTarget) error {
 	mux := http.NewServeMux()
 	peerSet := map[string]bool{}
@@ -425,7 +427,7 @@ func Serve(ctx context.Context, port int, token string, peers []string, wake map
 		respond(w, actionCode(res), res)
 	}))
 
-	srv := &http.Server{Addr: fmt.Sprintf("127.0.0.1:%d", port), Handler: mux}
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: mux}
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
