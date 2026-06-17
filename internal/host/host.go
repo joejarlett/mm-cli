@@ -195,6 +195,78 @@ func Containers() ([]Container, error) {
 	return list, nil
 }
 
+// DBInfo is the postgres role + replication snapshot for the dashboard's
+// active-active consistency view. Container is the auto-detected role-named
+// postgres container (mm-postgres-primary / mm-postgres-standby).
+type DBInfo struct {
+	Container   string `json:"container"`
+	Reachable   bool   `json:"reachable"`
+	InRecovery  bool   `json:"in_recovery"`
+	Role        string `json:"role"`         // "primary" | "standby" | "unknown"
+	ClusterRole string `json:"cluster_role"` // app.cluster_role marker
+	ReadOnly    bool   `json:"read_only"`
+	Standbys    int    `json:"standbys"`     // streaming standbys (primary only)
+	LagBytes    int64  `json:"lag_bytes"`    // max replay lag, bytes (primary only; -1 = n/a)
+	WalReceiver string `json:"wal_receiver"` // streaming status (standby only)
+	Error       string `json:"error,omitempty"`
+}
+
+// pgContainer auto-detects the running role-named postgres container.
+func pgContainer() string {
+	out, err := run(4*time.Second, dockerBin(), "ps", "--filter", "name=mm-postgres", "--format", "{{.Names}}")
+	if err == nil {
+		for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				return l
+			}
+		}
+	}
+	return "mm-postgres"
+}
+
+// psql runs a one-shot query in the postgres container, returning |-separated fields.
+func psql(container, sql string) (string, error) {
+	user := os.Getenv("POSTGRES_USER")
+	if user == "" {
+		user = "gn_app"
+	}
+	out, err := run(8*time.Second, dockerBin(), "exec", container,
+		"psql", "-U", user, "-d", "postgres", "-tAF|", "-c", sql)
+	return strings.TrimSpace(out), err
+}
+
+// DB returns the local postgres role + replication snapshot. Safe on both
+// primary and standby (the lag query, which needs pg_current_wal_lsn(), runs
+// only on the primary — it errors during recovery).
+func DB() DBInfo {
+	c := pgContainer()
+	info := DBInfo{Container: c, LagBytes: -1, Role: "unknown"}
+	base, err := psql(c, "SELECT pg_is_in_recovery(), current_setting('app.cluster_role',true), current_setting('transaction_read_only'), COALESCE((SELECT status FROM pg_stat_wal_receiver LIMIT 1),'')")
+	if err != nil {
+		info.Error = "postgres unreachable"
+		return info
+	}
+	info.Reachable = true
+	if f := strings.Split(base, "|"); len(f) >= 4 {
+		info.InRecovery = f[0] == "t"
+		info.ClusterRole = f[1]
+		info.ReadOnly = f[2] == "on"
+		info.WalReceiver = f[3]
+	}
+	if info.InRecovery {
+		info.Role = "standby"
+	} else {
+		info.Role = "primary"
+		if rep, err := psql(c, "SELECT count(*), COALESCE(max(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn))::bigint,0) FROM pg_stat_replication WHERE state='streaming'"); err == nil {
+			if rf := strings.Split(rep, "|"); len(rf) >= 2 {
+				info.Standbys, _ = strconv.Atoi(rf[0])
+				info.LagBytes, _ = strconv.ParseInt(rf[1], 10, 64)
+			}
+		}
+	}
+	return info
+}
+
 // ── HTTP server ─────────────────────────────────────────────────────────────
 
 func respond(w http.ResponseWriter, code int, v any) {
@@ -257,6 +329,9 @@ func Serve(ctx context.Context, port int, token string, peers []string, wake map
 		}
 		respond(w, http.StatusOK, map[string][]Service{"services": list})
 	}))
+	mux.HandleFunc("GET /db", guard(func(w http.ResponseWriter, r *http.Request) {
+		respond(w, http.StatusOK, DB())
+	}))
 
 	// Peer relay — /peers/{name}/{system,containers,services} mirror the local
 	// routes for each configured peer machine. The name must be in the
@@ -269,7 +344,7 @@ func Serve(ctx context.Context, port int, token string, peers []string, wake map
 			respond(w, http.StatusNotFound, map[string]string{"error": "unknown peer"})
 			return
 		}
-		if sub != "system" && sub != "containers" && sub != "services" {
+		if sub != "system" && sub != "containers" && sub != "services" && sub != "db" {
 			respond(w, http.StatusNotFound, map[string]string{"error": "not found"})
 			return
 		}
