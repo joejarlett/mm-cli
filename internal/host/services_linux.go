@@ -57,5 +57,32 @@ func Services() []Service {
 			Actionable:     !protectedServices[unit],
 		})
 	}
+
+	// cloudflared on Linux is a SYSTEM unit (not --user), so the loop above misses
+	// it — surface it read-only so the dashboard shows the connector here too (it's
+	// how this node serves). Acting on a system unit needs root, so display-only.
+	if props, e := run(4*time.Second, "systemctl", "show", "cloudflared.service",
+		"-p", "ActiveState", "-p", "MainPID", "-p", "LoadState", "--no-pager"); e == nil {
+		m := map[string]string{}
+		for _, l := range strings.Split(strings.TrimSpace(props), "\n") {
+			if k, v, ok := strings.Cut(l, "="); ok {
+				m[k] = v
+			}
+		}
+		if m["LoadState"] == "loaded" {
+			var pid *int
+			if v, _ := strconv.Atoi(m["MainPID"]); v > 0 {
+				pid = &v
+			}
+			services = append(services, Service{
+				Label:      "cloudflared",
+				Name:       "cloudflared",
+				Pid:        pid,
+				Loaded:     m["ActiveState"] == "active",
+				Type:       "daemon",
+				Actionable: false, // system unit — needs root, display-only
+			})
+		}
+	}
 	return services
 }
