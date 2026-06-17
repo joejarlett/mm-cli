@@ -32,19 +32,28 @@ func Services() []Service {
 		}
 		active := fields[2] == "active" // ACTIVE column
 		var pid, status *int
-		// MainPID + last exit code, one show call per tracked unit (few of them).
+		svcType := "daemon"
+		// MainPID + last exit + unit Type, one show call per tracked unit. A
+		// `oneshot` unit is timer-driven and idle between runs (not a down daemon),
+		// so map it to "cron" — the UI then shows it as scheduled, not stopped.
 		if props, e := run(4*time.Second, "systemctl", "--user", "show", fields[0],
-			"-p", "MainPID", "-p", "ExecMainStatus", "--value", "--no-pager"); e == nil {
-			vals := strings.Fields(strings.TrimSpace(props))
-			if len(vals) >= 1 {
-				if v, _ := strconv.Atoi(vals[0]); v > 0 {
-					pid = &v
+			"-p", "MainPID", "-p", "ExecMainStatus", "-p", "Type", "--no-pager"); e == nil {
+			m := map[string]string{}
+			for _, l := range strings.Split(strings.TrimSpace(props), "\n") {
+				if k, v, ok := strings.Cut(l, "="); ok {
+					m[k] = v
 				}
 			}
-			if len(vals) >= 2 {
-				if v, err := strconv.Atoi(vals[1]); err == nil {
+			if v, _ := strconv.Atoi(m["MainPID"]); v > 0 {
+				pid = &v
+			}
+			if m["ExecMainStatus"] != "" {
+				if v, err := strconv.Atoi(m["ExecMainStatus"]); err == nil {
 					status = &v
 				}
+			}
+			if m["Type"] == "oneshot" {
+				svcType = "cron"
 			}
 		}
 		services = append(services, Service{
@@ -53,7 +62,7 @@ func Services() []Service {
 			Pid:            pid,
 			LastExitStatus: status,
 			Loaded:         active,
-			Type:           "daemon",
+			Type:           svcType,
 			Actionable:     !protectedServices[unit],
 		})
 	}
