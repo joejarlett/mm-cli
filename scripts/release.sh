@@ -23,10 +23,11 @@ rm -rf dist-go
 mkdir -p dist-go
 
 # Explicit target list — windows is amd64-only and needs a .exe suffix, so a
-# plain os×arch nested loop doesn't fit.
-for TARGET in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+# plain os×arch nested loop doesn't fit. (Windows host-management commands are
+# stubbed in internal/host/*_windows.go; the rest of the CLI is fully supported.)
+for TARGET in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64; do
   OS="${TARGET%/*}"; ARCH="${TARGET#*/}"
-  EXT=""
+  EXT=""; [ "$OS" = windows ] && EXT=".exe"
   OUT="dist-go/mm-$OS-$ARCH$EXT"
   echo "build $OS/$ARCH"
   GOOS=$OS GOARCH=$ARCH CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" \
