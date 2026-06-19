@@ -70,7 +70,11 @@ func Check(ctx context.Context) (*CheckResult, error) {
 		return nil, err
 	}
 	out := &CheckResult{Current: version.Version, Latest: latest}
-	out.Newer = latest != version.Version && version.Version != "dev"
+	// Compare with the "v" prefix stripped from both sides so a prefix mismatch
+	// (e.g. latest "v0.2.1" vs an unprefixed dev build "0.2.1") can't read as a
+	// spurious update. "dev" never reports as behind.
+	cur := strings.TrimPrefix(version.Version, "v")
+	out.Newer = strings.TrimPrefix(latest, "v") != cur && version.Version != "dev"
 	return out, nil
 }
 

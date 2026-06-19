@@ -44,7 +44,7 @@ func runUpdate(cmd *cobra.Command, _ []string) error {
 			return err
 		}
 		if res.Newer {
-			fmt.Printf("mm update available: v%s → %s  (run: mm update)\n", res.Current, res.Latest)
+			fmt.Printf("mm update available: %s → %s  (run: mm update)\n", res.Current, res.Latest)
 		} else {
 			fmt.Printf("mm is up to date (%s)\n", res.Current)
 		}
