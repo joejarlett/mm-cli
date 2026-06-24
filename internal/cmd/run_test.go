@@ -96,10 +96,12 @@ func TestRunDispatch(t *testing.T) {
 	oldLookPath := hermesLookPath
 	oldHermesRun := hermesRunFunc
 	oldResolveProj := resolveProjectRoot
+	oldAuthStatus := hermesAuthStatusFunc
 	defer func() {
 		hermesLookPath = oldLookPath
 		hermesRunFunc = oldHermesRun
 		resolveProjectRoot = oldResolveProj
+		hermesAuthStatusFunc = oldAuthStatus
 	}()
 
 	hermesLookPath = func(file string) (string, error) {
@@ -107,6 +109,15 @@ func TestRunDispatch(t *testing.T) {
 			return "/usr/local/bin/hermes", nil
 		}
 		return "", errors.New("not found")
+	}
+
+	// Default: every provider reports authed. Individual cases override via authOut.
+	var authOut string
+	hermesAuthStatusFunc = func(provider string) string {
+		if authOut != "" {
+			return authOut
+		}
+		return provider + ": logged in"
 	}
 
 	var lastRunName string
@@ -134,6 +145,7 @@ func TestRunDispatch(t *testing.T) {
 	tests := []struct {
 		name         string
 		args         []string
+		authOut      string
 		expectedArgs []string
 		expectedEnv  string
 		expectedDir  string
@@ -143,13 +155,14 @@ func TestRunDispatch(t *testing.T) {
 		errContains  string
 	}{
 		{
-			name: "Simple background dispatch",
+			name: "Simple background dispatch (default model → gemini)",
 			args: []string{"refactor error handling"},
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me", "chat", "-q", "refactor error handling",
+				"--model", "gemini-3.5-flash", "--provider", "gemini",
 			},
-			expectedEnv:  "HERMES_INFERENCE_MODEL=google/gemini-3.5-flash",
+			expectedEnv:  "HERMES_INFERENCE_MODEL=gemini/gemini-3.5-flash",
 			expectedWait: false,
 			expectOut:    "▶ Hermes running in background",
 		},
@@ -159,24 +172,44 @@ func TestRunDispatch(t *testing.T) {
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me", "chat", "-q", "MM_THREAD_ID=thread_123 refactor keel",
+				"--model", "gemini-3.5-flash", "--provider", "gemini",
 			},
 			expectedDir:  "/projects/keel",
 			expectedWait: true,
 		},
 		{
-			name: "Model and extra skills override",
+			name: "Bare model override (no provider, no /)",
 			args: []string{"test routes", "--model", "custom-model", "--skills", "skill-a,skill-b"},
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me,skill-a,skill-b", "chat", "-q", "test routes",
+				"--model", "custom-model",
 			},
 			expectedEnv:  "HERMES_INFERENCE_MODEL=custom-model",
 			expectedWait: false,
 		},
 		{
+			name: "Alias glm resolves provider+model, max-turns passthrough",
+			args: []string{"sweep specs", "--model", "glm", "--max-turns", "250"},
+			expectedArgs: []string{
+				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
+				"-s", "meta-me", "chat", "-q", "sweep specs",
+				"--model", "glm-5.2", "--provider", "zai", "--max-turns", "250",
+			},
+			expectedEnv:  "HERMES_INFERENCE_MODEL=zai/glm-5.2",
+			expectedWait: false,
+		},
+		{
+			name:        "Hard-fail when provider logged out",
+			args:        []string{"sweep specs", "--model", "glm"},
+			authOut:     "zai: logged out",
+			expectErr:   true,
+			errContains: "not authenticated",
+		},
+		{
 			name: "Dry run output",
 			args: []string{"write docs", "--dry-run"},
-			expectOut: `HERMES_INFERENCE_MODEL=google/gemini-3.5-flash hermes --worktree --yolo --accept-hooks --pass-session-id -s meta-me chat -q "write docs"`,
+			expectOut: `HERMES_INFERENCE_MODEL=gemini/gemini-3.5-flash hermes --worktree --yolo --accept-hooks --pass-session-id -s meta-me chat -q "write docs" --model gemini-3.5-flash --provider gemini`,
 		},
 		{
 			name:        "Invalid project error",
@@ -194,6 +227,7 @@ func TestRunDispatch(t *testing.T) {
 			lastRunDir = ""
 			lastRunEnv = nil
 			lastRunWait = false
+			authOut = tt.authOut
 
 			buf := new(bytes.Buffer)
 			c := NewRunCmd()

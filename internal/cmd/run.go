@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,7 +32,13 @@ var (
 		return resp, err
 	}
 	hermesLookPath = exec.LookPath
-	hermesRunFunc  = func(ctx context.Context, name string, args []string, dir string, env []string, wait bool) error {
+	// hermesAuthStatusFunc reports a provider's auth status line (e.g. "zai: logged in").
+	// Overridable for tests.
+	hermesAuthStatusFunc = func(provider string) string {
+		out, _ := exec.Command("hermes", "auth", "status", provider).CombinedOutput()
+		return string(out)
+	}
+	hermesRunFunc = func(ctx context.Context, name string, args []string, dir string, env []string, wait bool) error {
 		c := exec.Command(name, args...)
 		c.Dir = dir
 		c.Env = env
@@ -45,6 +52,42 @@ var (
 		return c.Start()
 	}
 )
+
+// modelAliases maps short, memorable names to a canonical provider/model pair,
+// reflecting the providers this setup actually has authed. Keeps `mm run --model glm`
+// one keystroke instead of `--model zai/glm-5.2` + a separate --provider.
+var modelAliases = map[string]string{
+	"glm":      "zai/glm-5.2",
+	"gemini":   "gemini/gemini-3.5-flash",
+	"flash":    "gemini/gemini-3.5-flash",
+	"deepseek": "deepseek/deepseek-v4-pro",
+	"sonnet":   "anthropic/claude-sonnet-4.6",
+	"opus":     "anthropic/claude-opus-4.8",
+}
+
+// defaultRunModel resolves the model when --model is omitted: MM_RUN_MODEL env
+// (so the default is one .env line away, no rebuild) then a built-in fallback.
+func defaultRunModel() string {
+	if m := strings.TrimSpace(os.Getenv("MM_RUN_MODEL")); m != "" {
+		return m
+	}
+	return "gemini/gemini-3.5-flash"
+}
+
+// resolveModel turns a --model value into explicit (provider, name) parts for
+// `hermes chat`. It expands short aliases, then splits on the first "/". Hermes
+// needs --provider set explicitly — the bare "provider/model" string does NOT
+// auto-resolve the provider on the chat path (it silently falls back). An empty
+// provider means "no /" was given; leave Hermes to auto-detect.
+func resolveModel(model string) (provider, name string) {
+	if expanded, ok := modelAliases[strings.ToLower(strings.TrimSpace(model))]; ok {
+		model = expanded
+	}
+	if idx := strings.IndexByte(model, '/'); idx >= 0 {
+		return model[:idx], model[idx+1:]
+	}
+	return "", model
+}
 
 // NewRunCmd builds the `mm run` command — delegate tasks to Hermes and review results.
 func NewRunCmd() *cobra.Command {
@@ -65,7 +108,10 @@ Run options:
                           Sets the cwd for Hermes — worktree is branched from here.
   --thread <id>           Desk chat thread ID. Hermes injects a completion message
                           when done ("results posted to admin/audit").
-  --model <id>            Model override (default: google/gemini-3.5-flash)
+  --model <id>            Model: alias (glm|gemini|deepseek|sonnet|opus), provider/model,
+                          or bare model. Default: $MM_RUN_MODEL or gemini/gemini-3.5-flash.
+  --max-turns <n>         Max tool-calling iterations (0 = Hermes default of 90). Raise
+                          for long one-shot tasks; no need to touch global config.
   --skills <s1,s2>        Extra Hermes skills to preload (meta-me is always loaded)
   --wait                  Run in foreground and stream Hermes output (default: background)
   --dry-run               Print the Hermes command without running it
@@ -90,7 +136,8 @@ mm run list and mm run show read those reports from the CLI.`,
 	// Dispatch flags
 	cmd.Flags().StringP("project", "p", "", "Project to work in (resolved from registered projects)")
 	cmd.Flags().StringP("thread", "t", "", "Desk chat thread ID")
-	cmd.Flags().StringP("model", "m", "google/gemini-3.5-flash", "Model override")
+	cmd.Flags().StringP("model", "m", "", "Model: alias (glm|gemini|deepseek|sonnet|opus), provider/model, or bare model. Default: $MM_RUN_MODEL or gemini/gemini-3.5-flash")
+	cmd.Flags().Int("max-turns", 0, "Max tool-calling iterations for the run (0 = Hermes default of 90)")
 	cmd.Flags().StringP("skills", "s", "", "Extra Hermes skills to preload (comma-separated)")
 	cmd.Flags().Bool("wait", false, "Run in foreground and stream Hermes output")
 	cmd.Flags().Bool("dry-run", false, "Print the Hermes command without running it")
@@ -155,9 +202,19 @@ func runDispatch(cmd *cobra.Command, args []string) error {
 	project, _ := cmd.Flags().GetString("project")
 	thread, _ := cmd.Flags().GetString("thread")
 	model, _ := cmd.Flags().GetString("model")
+	maxTurns, _ := cmd.Flags().GetInt("max-turns")
 	skillsStr, _ := cmd.Flags().GetString("skills")
 	wait, _ := cmd.Flags().GetBool("wait")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
+
+	if model == "" {
+		model = defaultRunModel()
+	}
+	provider, modelName := resolveModel(model)
+	resolvedModel := modelName
+	if provider != "" {
+		resolvedModel = provider + "/" + modelName
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -193,7 +250,10 @@ func runDispatch(cmd *cobra.Command, args []string) error {
 	}
 	skillsArg := strings.Join(skills, ",")
 
-	// Assemble Hermes invocation
+	// Assemble Hermes invocation. --model/--provider/--max-turns are `chat`
+	// subcommand flags, so they go after `chat`. We pass --model AND --provider
+	// explicitly: the chat path ignores HERMES_INFERENCE_MODEL and won't infer
+	// the provider from a "provider/model" prefix.
 	hermesArgs := []string{
 		"--worktree",
 		"--yolo",
@@ -202,6 +262,13 @@ func runDispatch(cmd *cobra.Command, args []string) error {
 		"-s", skillsArg,
 		"chat",
 		"-q", prompt,
+		"--model", modelName,
+	}
+	if provider != "" {
+		hermesArgs = append(hermesArgs, "--provider", provider)
+	}
+	if maxTurns > 0 {
+		hermesArgs = append(hermesArgs, "--max-turns", strconv.Itoa(maxTurns))
 	}
 
 	if dryRun {
@@ -213,7 +280,7 @@ func runDispatch(cmd *cobra.Command, args []string) error {
 				quotedArgs = append(quotedArgs, a)
 			}
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "HERMES_INFERENCE_MODEL=%s hermes %s\n", model, strings.Join(quotedArgs, " "))
+		fmt.Fprintf(cmd.OutOrStdout(), "HERMES_INFERENCE_MODEL=%s hermes %s\n", resolvedModel, strings.Join(quotedArgs, " "))
 		fmt.Fprintf(cmd.OutOrStdout(), "cwd: %s\n", cwd)
 		return nil
 	}
@@ -223,7 +290,13 @@ func runDispatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("hermes not found on PATH. Make sure Hermes Agent is installed")
 	}
 
-	env := append(os.Environ(), "HERMES_INFERENCE_MODEL="+model)
+	// Pre-flight auth guard: refuse to spawn on a provider that isn't logged in,
+	// rather than let Hermes silently fall back to another model and waste the run.
+	if provider != "" && strings.Contains(strings.ToLower(hermesAuthStatusFunc(provider)), "logged out") {
+		return fmt.Errorf("provider %q is not authenticated — run `hermes auth add %s` or pick a --model on an authed provider.\nRefusing to run: Hermes would silently fall back to a different model and burn the run on the wrong one.", provider, provider)
+	}
+
+	env := append(os.Environ(), "HERMES_INFERENCE_MODEL="+resolvedModel)
 
 	if wait {
 		err = hermesRunFunc(cmd.Context(), "hermes", hermesArgs, cwd, env, true)
@@ -241,10 +314,7 @@ func runDispatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to spawn hermes: %w", err)
 	}
 
-	modelLabel := model
-	if idx := strings.LastIndexByte(model, '/'); idx >= 0 {
-		modelLabel = model[idx+1:]
-	}
+	modelLabel := resolvedModel
 	projectLabel := project
 	if projectLabel == "" {
 		projectLabel = filepath.Base(cwd)
