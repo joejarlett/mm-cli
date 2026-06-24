@@ -48,7 +48,12 @@ Only GLM's cost is billing-confirmed (z.ai balance). Gemini/DeepSeek are public-
 Caveat: still review any archiving/destructive sweep before merge — even GLM is one bad call away from hiding work. The reviewable-branch + SWEEP-REPORT workflow is load-bearing, not polish.
 
 ## Open questions / future work
-- **Is the gap tunable or genuine?** DeepSeek's under-reading is partly promptable (force ≥1 impl-file read per spec, raise effort) — but that erodes its cost edge and may hit a reasoning ceiling. Gemini's over-archiving is judgment *with* the evidence in hand, so harder to prompt away. Unresolved: re-run both with a maximally-conservative prompt ("treat specs flagged master/foundational as live; PARTIAL if any sub-item/phase marker is open") and see if either reaches 5/5. Prompt gains are transferable; the residual is model capability. (N=1 per repo — treat as suggestive, not proven.)
+- **Is the gap tunable or genuine? — ANSWERED (2026-06-24, knowledgebase-v1, strict conservative prompt, all 3 models).**
+  - *Promptable:* Gemini's foundational-spec error. With explicit "never archive foundational specs," it correctly left `active-kb` LIVE (vs wrongly archiving crm-v2's master spec). Transferable.
+  - *NOT promptable — Gemini's over-archiving:* even told "PARTIAL if ANY phase/sub-item is open" and reading 87 calls deep, it still archived `scholarly-retrieval` as DONE — the spec's own Phase 3.1 is "(next)", `CONVERT_URL` is in no `.env`, and no semantic re-rank exists (all confirmed in code). Reasoning ceiling, not a prompt gap.
+  - *NOT promptable — DeepSeek's reliability:* despite explicit "your work is only saved if you commit," its kb run produced no committed branch at all. Nothing landed.
+  - *GLM:* correct verdicts (incl. `scholarly-retrieval` PARTIAL→split) in 30 calls / 2.47M input — fewer/cheaper than Gemini's 87 / 7.36M. Accuracy is judgment, not brute-force reading.
+  - **Conclusion:** prompt-tuning fixes gross errors (foundational specs, committing) but not the subtle precision gap. GLM genuinely reasons better on partial-completion nuance. Confirms `MM_RUN_MODEL=glm` for unbabysat work. (3 repos — infra/crm-v2/kb — all point the same way; robust but not exhaustive.)
 - **Intuitive switching by requirement.** Proposed: semantic `--mode` sugar over the aliases —
   - `--mode quality` → glm (high-stakes, unattended)
   - `--mode fast` → gemini (quick, you'll review)
