@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"mm-cli/internal/config"
 	"mm-cli/internal/http"
 	"mm-cli/internal/wire"
 )
@@ -199,6 +200,9 @@ var resolveProjectRoot = func(ctx context.Context, ref string) (string, error) {
 }
 
 func runDispatch(cmd *cobra.Command, args []string) error {
+	// Load ~/.mm/.env into the process env so MM_RUN_MODEL (and friends) resolve.
+	config.Load()
+
 	project, _ := cmd.Flags().GetString("project")
 	thread, _ := cmd.Flags().GetString("thread")
 	model, _ := cmd.Flags().GetString("model")

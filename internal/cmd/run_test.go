@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -110,6 +111,19 @@ func TestRunDispatch(t *testing.T) {
 		}
 		return "", errors.New("not found")
 	}
+
+	// Pin the default-model resolution hermetically: "" is present-but-empty, so
+	// config.Load()'s ~/.mm/.env loader skips MM_RUN_MODEL and defaultRunModel
+	// falls to the built-in gemini default regardless of the host's real .env.
+	oldRunModel, hadRunModel := os.LookupEnv("MM_RUN_MODEL")
+	os.Setenv("MM_RUN_MODEL", "")
+	defer func() {
+		if hadRunModel {
+			os.Setenv("MM_RUN_MODEL", oldRunModel)
+		} else {
+			os.Unsetenv("MM_RUN_MODEL")
+		}
+	}()
 
 	// Default: every provider reports authed. Individual cases override via authOut.
 	var authOut string
