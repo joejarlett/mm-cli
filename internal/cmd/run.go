@@ -62,6 +62,8 @@ var modelAliases = map[string]string{
 	"gemini":   "gemini/gemini-3.5-flash",
 	"flash":    "gemini/gemini-3.5-flash",
 	"deepseek": "deepseek/deepseek-v4-pro",
+	"kimi":     "kimi-for-coding/k3",
+	"k3":       "kimi-for-coding/k3",
 	"sonnet":   "anthropic/claude-sonnet-4.6",
 	"opus":     "anthropic/claude-opus-4.8",
 }
@@ -109,7 +111,7 @@ Run options:
                           Sets the cwd for Hermes — worktree is branched from here.
   --thread <id>           Desk chat thread ID. Hermes injects a completion message
                           when done ("results posted to admin/audit").
-  --model <id>            Model: alias (glm|gemini|deepseek|sonnet|opus), provider/model,
+  --model <id>            Model: alias (glm|gemini|deepseek|kimi|sonnet|opus), provider/model,
                           or bare model. Default: $MM_RUN_MODEL or gemini/gemini-3.5-flash.
   --max-turns <n>         Max tool-calling iterations (0 = Hermes default of 90). Raise
                           for long one-shot tasks; no need to touch global config.
@@ -137,7 +139,7 @@ mm run list and mm run show read those reports from the CLI.`,
 	// Dispatch flags
 	cmd.Flags().StringP("project", "p", "", "Project to work in (resolved from registered projects)")
 	cmd.Flags().StringP("thread", "t", "", "Desk chat thread ID")
-	cmd.Flags().StringP("model", "m", "", "Model: alias (glm|gemini|deepseek|sonnet|opus), provider/model, or bare model. Default: $MM_RUN_MODEL or gemini/gemini-3.5-flash")
+	cmd.Flags().StringP("model", "m", "", "Model: alias (glm|gemini|deepseek|kimi|sonnet|opus), provider/model, or bare model. Default: $MM_RUN_MODEL or gemini/gemini-3.5-flash")
 	cmd.Flags().Int("max-turns", 0, "Max tool-calling iterations for the run (0 = Hermes default of 90)")
 	cmd.Flags().StringP("skills", "s", "", "Extra Hermes skills to preload (comma-separated)")
 	cmd.Flags().Bool("wait", false, "Run in foreground and stream Hermes output")
