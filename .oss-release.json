@@ -1,0 +1,32 @@
+{
+  "repo": {
+    "publicName": "mm-cli",
+    "tagline": "One CLI for a personal software platform — knowledge base, CRM, Google Workspace, voice, agents, and platform admin."
+  },
+  "export": {
+    "exclude": [],
+    "rename": {},
+    "substitute": [
+      { "find": "joe\\.jarlett@(gmail\\.com|grounded\\.ninja)", "replace": "you@example.com" },
+
+      { "find": "meta-me\\.uk/(src|cli)/[^\\s)\\]\"'`]*", "replace": "the hub repo" },
+
+      { "find": "jj-server", "replace": "linux-host" },
+      { "find": "jj-home", "replace": "home" },
+
+      { "find": "mm-postgres-primary", "replace": "postgres-primary" },
+      { "find": "mm-postgres-standby", "replace": "postgres-standby" },
+      { "find": "mm-postgres", "replace": "postgres" },
+      { "find": "mm-nginx", "replace": "nginx" },
+      { "find": "mm-auth", "replace": "auth" },
+      { "find": "mm-infra-api", "replace": "infra-api" },
+      { "find": "mm-local-agent", "replace": "local-agent" },
+      { "find": "mm-host", "replace": "host-agent" },
+
+      { "find": "tail[0-9a-f]{6,8}\\.ts\\.net", "replace": "tailnet.ts.net" },
+
+      { "find": "ec:8e:b5:78:c9:98", "replace": "de:ad:be:ef:00:01" },
+      { "find": "192\\.168\\.1\\.102", "replace": "192.168.1.10" }
+    ]
+  }
+}
