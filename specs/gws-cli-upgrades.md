@@ -46,7 +46,7 @@ Payload shape mirrors the gateway `DraftRequest` / `SendRequest`:
 **Output for `mm email draft --from ...`:**
 
 ```
-✓ Gmail draft saved (to: nora@affiniti.ai)
+✓ Gmail draft saved (to: nora@example.com)
   Message ID: 19e69b1b62194072
 ```
 
@@ -173,9 +173,9 @@ type CalendarGetResp struct {
 
 ```bash
 # Create a Gmail draft from Joe's Gmail address
-mm email draft --from joe.jarlett@gmail.com --to nora@affiniti.ai \
+mm email draft --from joe.jarlett@gmail.com --to nora@example.com \
   --subject "Test" --body "Hi Nora"
-# → ✓ Gmail draft saved (to: nora@affiniti.ai) / Message ID: ...
+# → ✓ Gmail draft saved (to: nora@example.com) / Message ID: ...
 
 # Trash a Gmail message
 mm email trash 19e69b1b62194072
@@ -187,5 +187,5 @@ mm calendar delete 5dktn761surtrs98n2jomjlb84
 
 # Inspect an event by ID
 mm calendar get _60q30c1g...
-# → Fri 29 May 10:00–11:00  Joe Jarlett - Incubator Programme Introductory Meeting
+# → Fri 29 May 10:00–11:00  Jane Doe - Project Status Sync
 ```
