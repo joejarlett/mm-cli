@@ -140,35 +140,46 @@ func runTts(cmd *cobra.Command, args []string) error {
 // consumePCMSSE parses the SSE event stream the hub emits and returns the
 // concatenated base64-decoded PCM chunks.
 func consumePCMSSE(body io.Reader) ([]byte, error) {
-	scanner := bufio.NewScanner(body)
-	// 1 MB max event size — TTS chunks are small but headroom doesn't hurt.
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	// NB: deliberately a bufio.Reader, not a bufio.Scanner. The hub can emit the
+	// whole utterance as ONE `data:` line, so a Scanner's max-token size is really
+	// a cap on audio LENGTH — and it fails as `token too long`, which reads like a
+	// protocol error rather than "your text was too long". With the old 1 MiB cap
+	// that was ~786 KB of PCM ≈ 24s ≈ 250 characters: fine for `mm tts "hello"`,
+	// silently fatal for a video's voiceover line. ReadString grows as needed, so
+	// there is no ceiling but the response itself.
+	reader := bufio.NewReaderSize(body, 64*1024)
 	var (
 		out  bytes.Buffer
 		evt  strings.Builder
 		done bool
 	)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line != "" {
-			evt.WriteString(line)
+	for {
+		line, err := reader.ReadString('\n')
+		// A final line without a trailing newline still carries data — process it
+		// before acting on io.EOF, or the last event is dropped.
+		trimmed := strings.TrimRight(line, "\r\n")
+		if trimmed != "" {
+			evt.WriteString(trimmed)
 			evt.WriteByte('\n')
-			continue
+		} else if line != "" || evt.Len() > 0 {
+			// blank line = event boundary
+			processed, terminate := processSSEEvent(evt.String(), &out)
+			evt.Reset()
+			if processed && terminate {
+				done = true
+				break
+			}
 		}
-		// blank line = event boundary
-		processed, terminate := processSSEEvent(evt.String(), &out)
-		evt.Reset()
-		if processed && terminate {
-			done = true
+		if err != nil {
+			if err != io.EOF {
+				return nil, err
+			}
 			break
 		}
 	}
-	// flush final partial event in case stream ended without trailing blank
+	// flush a final partial event in case the stream ended without a trailing blank
 	if !done {
 		_, _ = processSSEEvent(evt.String(), &out)
-	}
-	if err := scanner.Err(); err != nil && err != io.EOF {
-		return nil, err
 	}
 	return out.Bytes(), nil
 }

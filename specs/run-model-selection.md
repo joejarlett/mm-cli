@@ -42,6 +42,9 @@ Same task (sweep `specs/`, archive done / split partial, verify against code, co
 
 Only GLM's cost is billing-confirmed (z.ai balance). Gemini/DeepSeek are public-rate estimates (separate accounts, no billing readout). DeepSeek is materially cheaper than the estimate above.
 
+> **DeepSeek public rates (2026-06-29) — regular / peak (peak = 2×).** Pro: input cache-hit $0.003625 / $0.00725, cache-miss $0.435 / $0.87, output $0.87 / $1.74 per 1M tok. Flash: input cache-hit $0.0028 / $0.0056, cache-miss $0.14 / $0.28, output $0.28 / $0.56 per 1M tok.
+> **Peak hours are 01:00–04:00 and 06:00–10:00 UTC.** In UK terms that's **02:00–05:00 and 07:00–11:00 BST** (summer) / **01:00–04:00 and 06:00–10:00 GMT** (winter). The only peak window overlapping the UK working day is the **07:00–11:00 BST** morning — everything from 11:00 through to 02:00 next day runs at the cheaper regular rate, so defer deferrable bulk runs to after 11:00.
+
 ## Decision
 **Default `MM_RUN_MODEL=glm`.** `mm run` is delegated, unbabysat work — reliability dominates, and GLM was the only model safe-ish without line-by-line review. The ~$1.5–2/run premium is trivial vs a confident wrong call. Override per-task: `--model gemini` (fast/cheap, will review), `--model deepseek` (bulk/narrow).
 
