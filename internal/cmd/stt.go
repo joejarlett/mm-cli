@@ -80,6 +80,9 @@ func runStt(cmd *cobra.Command, args []string) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+state.Token)
 	req.Header.Set("Content-Type", "application/octet-stream")
+	// SvelteKit content-negotiates its error(): without this we get an
+	// HTML error page, which is unreadable in a terminal.
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -191,6 +194,9 @@ func runSttConversation(cmd *cobra.Command, src string, wantJSON bool) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+state.Token)
 	req.Header.Set("Content-Type", "application/octet-stream")
+	// SvelteKit content-negotiates its error(): without this we get an
+	// HTML error page, which is unreadable in a terminal.
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -231,6 +237,7 @@ func runSttConversation(cmd *cobra.Command, src string, wantJSON bool) error {
 			return err
 		}
 		preq.Header.Set("Authorization", "Bearer "+state.Token)
+		preq.Header.Set("Accept", "application/json")
 		presp, err := http.DefaultClient.Do(preq)
 		if err != nil {
 			return err
