@@ -12,6 +12,21 @@ import (
 	"mm-cli/internal/db"
 )
 
+// The single feedback vocabulary, matching meta-me.uk's admin picker. Kept
+// deliberately shorter than the error statuses: feedback has no `ignored`,
+// because that status only means "do not auto-reopen on recurrence", and
+// feedback never recurs.
+var feedbackStatuses = []string{"new", "triaged", "resolved", "wontfix"}
+
+func allowedFeedbackStatus(s string) bool {
+	for _, v := range feedbackStatuses {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 func newFeedbackCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "feedback [id] [<status>]",
@@ -19,7 +34,7 @@ func newFeedbackCmd() *cobra.Command {
 		Args:  cobra.RangeArgs(0, 2),
 		RunE:  runFeedback,
 	}
-	c.Flags().String("status", "", "Filter: new|seen|actioned|wontfix|…")
+	c.Flags().String("status", "", "Filter: new|triaged|resolved|wontfix")
 	c.Flags().String("app", "", "Filter by app slug")
 	c.Flags().Int("limit", 50, "Max rows")
 	return c
@@ -34,6 +49,15 @@ func runFeedback(cmd *cobra.Command, args []string) error {
 
 	// mutate: feedback <id> <status>
 	if len(args) == 2 {
+		// Validate against the same vocabulary the hub's admin UI offers. This
+		// used to write whatever string it was given, and the hub did too, so a
+		// row could land in a state neither surface could display or set again —
+		// which is exactly how one row sat at `actioned` while the picker only
+		// knew new/triaged/resolved/wontfix.
+		if !allowedFeedbackStatus(args[1]) {
+			return fmt.Errorf("invalid status %q — must be one of: %s",
+				args[1], strings.Join(feedbackStatuses, ", "))
+		}
 		var id, status, message string
 		err := pool.QueryRow(cmd.Context(),
 			`UPDATE feedback SET status = $1 WHERE id = $2 RETURNING id, status, message`,
