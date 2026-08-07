@@ -25,12 +25,17 @@ func NewSttCmd() *cobra.Command {
 		Short: "Transcribe audio (wav/mp3/m4a/…)",
 		Long: "Pass a file path or `-` to read audio bytes from stdin. WAV is the fast path; other formats use server-side ffmpeg.\n\n" +
 			"With --speakers, the audio is diarized: each line of the transcript is attributed to a speaker.\n" +
-			"That path is asynchronous server-side (a long recording is minutes of work), so the command\n" +
-			"blocks and reports progress while the job runs.",
+			"That runs as a server-side job at roughly 0.7x realtime — an hour-long meeting takes about\n" +
+			"45 minutes — so by default the command blocks and reports progress.\n\n" +
+			"For anything long, prefer --detach: it prints a job id and exits, and you pick the result up\n" +
+			"later with `mm stt job <id>`. The job survives the client going away either way, so an\n" +
+			"interrupted wait is never lost work — reattach rather than resubmitting.",
 		Example: "  mm stt memo.m4a\n" +
 			"  mm stt meeting.m4a --speakers\n" +
 			"  mm stt interview.wav --speakers=2\n" +
-			"  mm stt meeting.m4a --speakers --json",
+			"  mm stt meeting.m4a --speakers --detach\n" +
+			"  mm stt job 0d1fbb7bb9fb44de88cba47248a8c5e7\n" +
+			"  mm stt job 0d1fbb7bb9fb44de88cba47248a8c5e7 --wait",
 		Args: cobra.ExactArgs(1),
 		RunE: runStt,
 	}
@@ -40,7 +45,69 @@ func NewSttCmd() *cobra.Command {
 	c.Flags().Int("min-speakers", 0, "Lower bound on speaker count (ignored if --speakers=N)")
 	c.Flags().Int("max-speakers", 0, "Upper bound on speaker count (ignored if --speakers=N)")
 	c.Flags().String("language", "en", "ASR language; empty string auto-detects")
+	c.Flags().Bool("detach", false, "Submit and exit, printing the job id (use for long recordings)")
+	c.AddCommand(newSttJobCmd())
 	return c
+}
+
+// newSttJobCmd builds `mm stt job <id>` — reattach to a running or
+// finished diarization job.
+//
+// This exists because diarization runs at roughly 0.7x realtime, so an
+// hour-long meeting is a ~45-minute job. Nothing sensible waits that long
+// on one connection: an agent's tool call caps out well before it, and a
+// shell will usually be interrupted first. Without a way back to a job,
+// a timeout looks like a failure — and the obvious response, retrying,
+// queues a *second* 45-minute job behind the first on a single-worker
+// queue and makes everything worse.
+func newSttJobCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "job [job-id]",
+		Short: "Check or resume a diarization job",
+		Long: "Reattach to a job started with `mm stt <file> --speakers --detach`.\n\n" +
+			"Without --wait it prints the current status and exits, which is the right\n" +
+			"shape for an agent or a cron: check, go away, check again.",
+		Example: "  mm stt job 0d1fbb7bb9fb44de88cba47248a8c5e7\n" +
+			"  mm stt job 0d1fbb7bb9fb44de88cba47248a8c5e7 --wait",
+		Args: cobra.ExactArgs(1),
+		RunE: runSttJob,
+	}
+	c.Flags().Bool("wait", false, "Block until the job finishes, then print the transcript")
+	return c
+}
+
+func runSttJob(cmd *cobra.Command, args []string) error {
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	wait, _ := cmd.Flags().GetBool("wait")
+
+	state, err := auth.MustLoad()
+	if err != nil {
+		return err
+	}
+	cfg := config.Load()
+
+	if wait {
+		return pollUntilDone(cmd, cfg.HubURL, state.Token, args[0], wantJSON)
+	}
+
+	job, body, err := fetchJob(cmd, cfg.HubURL, state.Token, args[0])
+	if err != nil {
+		return err
+	}
+	if wantJSON {
+		fmt.Println(string(body))
+		return nil
+	}
+	switch job.Status {
+	case "done":
+		printDiarizedTranscript(job)
+	case "error":
+		return fmt.Errorf("STT job failed: %s", job.Error)
+	default:
+		fmt.Fprintf(os.Stderr, "%s: %s (%.0f%%)\nNot finished — re-run with --wait to block, or check again later.\n",
+			job.Status, job.Stage, job.Progress*100)
+	}
+	return nil
 }
 
 func runStt(cmd *cobra.Command, args []string) error {
@@ -121,12 +188,14 @@ type sttSegment struct {
 }
 
 type sttJob struct {
-	JobID    string  `json:"job_id"`
-	Status   string  `json:"status"`
-	Stage    string  `json:"stage"`
-	Progress float64 `json:"progress"`
-	Error    string  `json:"error"`
-	Result   *struct {
+	JobID     string  `json:"job_id"`
+	Status    string  `json:"status"`
+	Stage     string  `json:"stage"`
+	Progress  float64 `json:"progress"`
+	Error     string  `json:"error"`
+	DurationS float64 `json:"duration_s"`
+	EtaS      int     `json:"eta_s"`
+	Result    *struct {
 		Segments    []sttSegment `json:"segments"`
 		Text        string       `json:"text"`
 		DurationS   float64      `json:"duration_s"`
@@ -216,42 +285,80 @@ func runSttConversation(cmd *cobra.Command, src string, wantJSON bool) error {
 		return fmt.Errorf("stt: server returned no job id")
 	}
 
-	// Progress goes to stderr so `mm stt x.m4a --speakers > out.txt` still
-	// produces a clean transcript file.
-	quiet := wantJSON
-	if !quiet {
-		fmt.Fprintf(os.Stderr, "job %s queued…\n", job.JobID)
+	// Detached: hand back the id and get out of the way. This is the right
+	// mode for anything long — an hour-long meeting is a ~45-minute job,
+	// which outlives an agent's tool-call timeout and most people's
+	// patience. The job id on stdout is the whole point; everything else
+	// goes to stderr so `--detach` composes in a pipeline.
+	if detach, _ := cmd.Flags().GetBool("detach"); detach {
+		if wantJSON {
+			fmt.Println(string(body))
+			return nil
+		}
+		fmt.Println(job.JobID)
+		msg := fmt.Sprintf("submitted (%s of audio", fmtTimestamp(job.DurationS))
+		if job.EtaS > 0 {
+			msg += fmt.Sprintf(", ~%s to process", fmtTimestamp(float64(job.EtaS)))
+		}
+		fmt.Fprintf(os.Stderr, "%s)\n  mm stt job %s\n", msg, job.JobID)
+		return nil
 	}
 
-	pollURL := fmt.Sprintf("%s/api/stt/conversation/%s", cfg.HubURL, job.JobID)
+	if !wantJSON {
+		eta := ""
+		if job.EtaS > 0 {
+			eta = fmt.Sprintf(" (~%s)", fmtTimestamp(float64(job.EtaS)))
+		}
+		fmt.Fprintf(os.Stderr, "job %s queued%s…\n", job.JobID, eta)
+		if job.EtaS > 540 {
+			// Warn before they lose a long wait to a shell timeout rather
+			// than after.
+			fmt.Fprintf(os.Stderr,
+				"  long job — if this is interrupted, resume with: mm stt job %s --wait\n", job.JobID)
+		}
+	}
+
+	return pollUntilDone(cmd, cfg.HubURL, state.Token, job.JobID, wantJSON)
+}
+
+// fetchJob reads a job's current state once.
+func fetchJob(cmd *cobra.Command, hubURL, token, jobID string) (*sttJob, []byte, error) {
+	url := fmt.Sprintf("%s/api/stt/conversation/%s", hubURL, jobID)
+	req, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, url, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, nil, fmt.Errorf("STT poll failed (%d): %s", resp.StatusCode, truncString(string(body), 300))
+	}
+
+	var job sttJob
+	if err := json.Unmarshal(body, &job); err != nil {
+		return nil, nil, fmt.Errorf("stt: invalid JSON: %w", err)
+	}
+	return &job, body, nil
+}
+
+// pollUntilDone blocks on a job, reporting stage changes to stderr so a
+// redirected stdout still yields a clean transcript.
+func pollUntilDone(cmd *cobra.Command, hubURL, token, jobID string, wantJSON bool) error {
 	lastStage := ""
 	for {
-		select {
-		case <-cmd.Context().Done():
-			return cmd.Context().Err()
-		case <-time.After(2 * time.Second):
-		}
-
-		preq, err := http.NewRequestWithContext(cmd.Context(), http.MethodGet, pollURL, nil)
+		job, body, err := fetchJob(cmd, hubURL, token, jobID)
 		if err != nil {
 			return err
 		}
-		preq.Header.Set("Authorization", "Bearer "+state.Token)
-		preq.Header.Set("Accept", "application/json")
-		presp, err := http.DefaultClient.Do(preq)
-		if err != nil {
-			return err
-		}
-		pbody, _ := io.ReadAll(presp.Body)
-		presp.Body.Close()
-		if presp.StatusCode/100 != 2 {
-			return fmt.Errorf("STT poll failed (%d): %s", presp.StatusCode, truncString(string(pbody), 300))
-		}
-		if err := json.Unmarshal(pbody, &job); err != nil {
-			return fmt.Errorf("stt: invalid JSON: %w", err)
-		}
 
-		if !quiet && job.Stage != lastStage {
+		if !wantJSON && job.Stage != lastStage {
 			fmt.Fprintf(os.Stderr, "  [%3.0f%%] %s\n", job.Progress*100, job.Stage)
 			lastStage = job.Stage
 		}
@@ -259,13 +366,21 @@ func runSttConversation(cmd *cobra.Command, src string, wantJSON bool) error {
 		switch job.Status {
 		case "done":
 			if wantJSON {
-				fmt.Println(string(pbody))
+				fmt.Println(string(body))
 				return nil
 			}
-			printDiarizedTranscript(&job)
+			printDiarizedTranscript(job)
 			return nil
 		case "error":
 			return fmt.Errorf("STT job failed: %s", job.Error)
+		}
+
+		select {
+		case <-cmd.Context().Done():
+			// Interrupted, not failed — make the way back obvious.
+			fmt.Fprintf(os.Stderr, "\ninterrupted; the job is still running:\n  mm stt job %s --wait\n", jobID)
+			return cmd.Context().Err()
+		case <-time.After(5 * time.Second):
 		}
 	}
 }
