@@ -174,9 +174,9 @@ func TestRunDispatch(t *testing.T) {
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me", "chat", "-q", "refactor error handling",
-				"--model", "gemini-3.6-flash", "--provider", "gemini",
+				"--model", "gemini-3.7-flash", "--provider", "gemini",
 			},
-			expectedEnv:  "HERMES_INFERENCE_MODEL=gemini/gemini-3.6-flash",
+			expectedEnv:  "HERMES_INFERENCE_MODEL=gemini/gemini-3.7-flash",
 			expectedWait: false,
 			expectOut:    "▶ Hermes running in background",
 		},
@@ -186,7 +186,7 @@ func TestRunDispatch(t *testing.T) {
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me", "chat", "-q", "MM_THREAD_ID=thread_123 refactor keel",
-				"--model", "gemini-3.6-flash", "--provider", "gemini",
+				"--model", "gemini-3.7-flash", "--provider", "gemini",
 			},
 			expectedDir:  "/projects/keel",
 			expectedWait: true,
@@ -223,7 +223,7 @@ func TestRunDispatch(t *testing.T) {
 		{
 			name: "Dry run output",
 			args: []string{"write docs", "--dry-run"},
-			expectOut: `HERMES_INFERENCE_MODEL=gemini/gemini-3.6-flash hermes --worktree --yolo --accept-hooks --pass-session-id -s meta-me chat -q "write docs" --model gemini-3.6-flash --provider gemini`,
+			expectOut: `HERMES_INFERENCE_MODEL=gemini/gemini-3.7-flash hermes --worktree --yolo --accept-hooks --pass-session-id -s meta-me chat -q "write docs" --model gemini-3.7-flash --provider gemini`,
 		},
 		{
 			name:        "Invalid project error",

@@ -92,7 +92,7 @@ func runChatSend(cmd *cobra.Command, args []string) error {
 	if modelFlag != "" {
 		sl := strings.IndexByte(modelFlag, '/')
 		if sl <= 0 {
-			return fmt.Errorf("--model must be provider-prefixed, e.g. google/gemini-3.6-flash")
+			return fmt.Errorf("--model must be provider-prefixed, e.g. google/gemini-3.7-flash")
 		}
 		provider = modelFlag[:sl]
 		modelID = modelFlag[sl+1:]
