@@ -222,6 +222,9 @@ func runInvite(cmd *cobra.Command, args []string) error {
 				`INSERT INTO user_app (user_id, app_slug, enabled_at) VALUES ($1, $2, NOW())`, id, s); err != nil {
 				return err
 			}
+			if err := ensureAppInstance(cmd.Context(), pool, id, s); err != nil {
+				return err
+			}
 		}
 	}
 	extra := ""
@@ -230,6 +233,35 @@ func runInvite(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("✓ invited %s  id=%s  role=%s%s\n", email, id, role, extra)
 	return nil
+}
+
+// ensureAppInstance provisions the app_instance a user needs to actually use an
+// app they've been granted.
+//
+// A user_app row alone is a half-grant. Apps scope every row by instance (RLS
+// reads current_instance_ids(), writes current_write_instance_id()), so an
+// entitlement with no instance yields an app that loads empty and fails every
+// write on a NOT NULL violation. These admin verbs write straight to Postgres,
+// bypassing the hub API, so they have to do this themselves.
+//
+// Idempotent: no-op when the instance already exists, when the app is disabled,
+// or for instance-free apps. Mirrors APPS_WITHOUT_INSTANCES in
+// auth.meta-me.uk/src/lib/server/workspaces.ts.
+func ensureAppInstance(ctx context.Context, pool *pgxpool.Pool, userID, slug string) error {
+	_, err := pool.Exec(ctx, `
+		INSERT INTO app_instance (id, app_slug, owner_id, name)
+		SELECT $1, a.slug, u.id,
+		       COALESCE(split_part(NULLIF(btrim(u.name), ''), ' ', 1) || '''s ', '') || a.name
+		FROM app a, "user" u
+		WHERE a.slug = $2 AND u.id = $3::uuid
+		  AND a.enabled = true
+		  AND a.slug <> 'analytics'
+		  AND NOT EXISTS (
+			SELECT 1 FROM app_instance ai
+			WHERE ai.app_slug = a.slug AND ai.owner_id = u.id
+		  )`,
+		newUUID(), slug, userID)
+	return err
 }
 
 func runGrant(cmd *cobra.Command, args []string) error {
@@ -247,6 +279,9 @@ func runGrant(cmd *cobra.Command, args []string) error {
 	if _, err := pool.Exec(cmd.Context(),
 		`INSERT INTO user_app (user_id, app_slug, enabled_at) VALUES ($1, $2, NOW()) ON CONFLICT (user_id, app_slug) DO NOTHING`,
 		u.ID, args[1]); err != nil {
+		return err
+	}
+	if err := ensureAppInstance(cmd.Context(), pool, u.ID, args[1]); err != nil {
 		return err
 	}
 	fmt.Printf("✓ granted %s to %s\n", args[1], u.Email)
