@@ -1,8 +1,8 @@
 #!/bin/bash
-# scripts/install.sh — mm CLI installer for desk.meta-me.uk/install.
+# scripts/install.sh — mm CLI installer, served at meta-me.uk/install.sh.
 #
 # Usage:
-#   curl -fsSL https://desk.meta-me.uk/install | bash
+#   curl -fsSL https://meta-me.uk/install.sh | bash
 #
 # What it does:
 #   1. Detects OS + arch → mm-<platform> binary name.
@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-HUB_URL="${MM_HUB_URL:-https://desk.meta-me.uk}"
+HUB_URL="${MM_HUB_URL:-https://meta-me.uk}"
 INSTALL_DIR="${MM_DIR:-$HOME/.mm}"
 BIN_DIR="$INSTALL_DIR/bin"
 AGENT_PATH_DIR="$INSTALL_DIR/pi-agent/bin"
@@ -36,6 +36,22 @@ case "$uname_arch" in
 esac
 platform="$os-$arch"
 echo "→ platform: $platform"
+
+# ─── checksum helper ───────────────────────────────────────────────────
+
+# macOS ships `shasum`; most Linux distros (Arch, Alpine, minimal Debian) ship
+# only `sha256sum`. Support either, and refuse to install if neither exists —
+# an unverified binary is worse than a failed install.
+sha256_of() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    echo "Neither shasum nor sha256sum found — cannot verify download" >&2
+    exit 1
+  fi
+}
 
 # ─── resolve version ───────────────────────────────────────────────────
 
@@ -61,7 +77,7 @@ echo "→ downloading $bin_url"
 curl -fsSL "$bin_url" -o "$tmp_bin"
 
 echo "→ verifying checksum"
-got=$(shasum -a 256 "$tmp_bin" | awk '{print $1}')
+got=$(sha256_of "$tmp_bin")
 want=$(curl -fsSL "$sums_url" | grep "mm-$platform$" | head -1 | awk '{print $1}')
 if [ -z "$want" ]; then
   echo "SHA256SUMS missing entry for mm-$platform" >&2

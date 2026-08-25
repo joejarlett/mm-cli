@@ -103,8 +103,13 @@ if [ -d "$HOME/Documents/dev/meta-me.uk/static/dist" ]; then
     cp dist-go/MetaMe-Tray-* "$DEST/"
   fi
   echo "$VERSION" > "$HOME/Documents/dev/meta-me.uk/static/dist/mm/latest"
+  # Stage the installer alongside the binaries. Without this the served copy at
+  # meta-me.uk/install.sh drifts from this repo — which is exactly how it ended
+  # up as a stale root-requiring script while this one installed to ~/.mm/bin.
+  cp "$ROOT/scripts/install.sh" "$HOME/Documents/dev/meta-me.uk/static/install.sh"
   echo ""
   echo "Staged at $DEST"
+  echo "Staged installer at meta-me.uk/static/install.sh"
   echo "Next: commit + push the static dir in meta-me.uk, then 'docker compose build meta-me-uk && up -d meta-me-uk'"
 else
   echo ""
