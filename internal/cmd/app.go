@@ -309,6 +309,7 @@ type instanceItem struct {
 	ID        string `json:"id"`
 	AppSlug   string `json:"appSlug"`
 	Name      string `json:"name"`
+	URL       string `json:"url"`
 	IsOwner   bool   `json:"isOwner"`
 	IsPrimary bool   `json:"isPrimary"`
 }
@@ -317,7 +318,13 @@ func listInstances(ctx context.Context, client *mmhttp.Client, slug string) ([]i
 	var resp struct {
 		Instances []instanceItem `json:"instances"`
 	}
-	if err := client.Hub(ctx, "instance", "list", map[string]any{"slug": slug}, &resp); err != nil {
+	// An empty slug means "every app" — the hub filters on the key's
+	// presence, so send the payload without it rather than with "".
+	payload := map[string]any{}
+	if slug != "" {
+		payload["slug"] = slug
+	}
+	if err := client.Hub(ctx, "instance", "list", payload, &resp); err != nil {
 		return nil, err
 	}
 	return resp.Instances, nil
