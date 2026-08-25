@@ -417,15 +417,30 @@ func printStatus(w interface{ Write([]byte) (int, error) }, rep *statusReport) {
 
 	// Apps — typed-verb apps get a line each with their instances; the rest
 	// collapse to one line, since all you can do with them is `mm v2`.
-	typed, generic := 0, []string{}
+	// "Reachable" counts grants only: a registry app the token can't touch is
+	// still listed (so the absence is visible) but must never inflate the
+	// count of what you can actually drive.
+	typed, reachable, ungranted := 0, 0, 0
+	generic := []string{}
 	for _, a := range rep.Apps {
-		if a.Typed {
+		switch {
+		case !a.Entitled:
+			ungranted++
+		case a.Typed:
 			typed++
-		} else {
+			reachable++
+		default:
+			reachable++
+		}
+		if !a.Typed {
 			generic = append(generic, a.Slug)
 		}
 	}
-	p("Apps (%d reachable · %d with typed verbs)", len(rep.Apps), typed)
+	appsHead := fmt.Sprintf("Apps (%d reachable · %d with typed verbs", reachable, typed)
+	if ungranted > 0 {
+		appsHead += fmt.Sprintf(" · %d not granted", ungranted)
+	}
+	p("%s)", appsHead)
 	width := 0
 	for _, a := range rep.Apps {
 		if a.Typed && len(a.Slug) > width {

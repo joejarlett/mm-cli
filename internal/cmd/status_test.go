@@ -97,3 +97,38 @@ func TestRedactDSN(t *testing.T) {
 		})
 	}
 }
+
+// A token without a grant on a registry app still sees that app listed — but
+// it must not be counted as reachable. Regression: Dee's account rendered
+// "8 reachable" against a hub that had entitled 6.
+func TestPrintStatusCountsGrantsOnly(t *testing.T) {
+	rep := &statusReport{
+		Authenticated: true,
+		User:          &statusUser{Name: "Dee", Email: "dee@example.com", Prefix: "mm_301c2"},
+		CLI:           statusCLI{Version: "v0.2.4"},
+		Apps: []statusApp{
+			{Slug: "kb", Typed: true, Entitled: true, Description: "Knowledge Base"},
+			{Slug: "keel", Typed: true, Entitled: true, Description: "Keel"},
+			{Slug: "crm", Typed: true, Entitled: false, Description: "CRM"},
+			{Slug: "konte", Typed: true, Entitled: false, Description: "Konte"},
+			{Slug: "transcribe", Typed: false, Entitled: true},
+		},
+	}
+	var buf strings.Builder
+	printStatus(&buf, rep)
+	out := buf.String()
+
+	if !strings.Contains(out, "Apps (3 reachable · 2 with typed verbs · 2 not granted)") {
+		t.Fatalf("app header miscounted:\n%s", out)
+	}
+	// The ungranted apps stay visible — a shrinking list hides the reason a
+	// command would fail.
+	for _, slug := range []string{"crm", "konte"} {
+		if !strings.Contains(out, slug) {
+			t.Fatalf("ungranted app %q vanished from the list:\n%s", slug, out)
+		}
+	}
+	if !strings.Contains(out, "(no grant on this token)") {
+		t.Fatalf("ungranted apps rendered without their reason:\n%s", out)
+	}
+}
