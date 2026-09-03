@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -11,6 +12,26 @@ import (
 
 	"mm-cli/internal/wire"
 )
+
+// envForFailure renders only the environment entries this assertion is about.
+//
+// The env handed to Hermes is os.Environ() plus one appended variable, so it
+// carries every secret in the developer's shell — HUB_HMAC_SECRET, the
+// Postgres URLs (password inline), BRAVE_API_KEY, SEMANTIC_SCHOLAR_API_KEY.
+// Printing the whole slice on failure put all of that into terminal
+// scrollback and into any CI log that captured the run: a single failing
+// test published the hub's HMAC signing seed. The assertion only ever
+// concerns the model variables, so show those and count the rest.
+func envForFailure(env []string) string {
+	relevant := []string{}
+	for _, e := range env {
+		if strings.HasPrefix(e, "HERMES_") || strings.HasPrefix(e, "MM_RUN_MODEL=") {
+			relevant = append(relevant, e)
+		}
+	}
+	return fmt.Sprintf("%v (+%d inherited vars withheld — they contain live secrets)",
+		relevant, len(env)-len(relevant))
+}
 
 func TestRunCmdRouting(t *testing.T) {
 	// Mock history functions
@@ -301,7 +322,7 @@ func TestRunDispatch(t *testing.T) {
 						}
 					}
 					if !foundEnv {
-						t.Errorf("expected env list to contain %q, got %v", tt.expectedEnv, lastRunEnv)
+						t.Errorf("expected env list to contain %q, got %s", tt.expectedEnv, envForFailure(lastRunEnv))
 					}
 				}
 				if lastRunWait != tt.expectedWait {
