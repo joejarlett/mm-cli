@@ -6,9 +6,9 @@ Decision record for how `mm run` picks a model, and the head-to-head that justif
 
 `mm run --model <X>` resolves `X` then passes **explicit `--provider` + `--model`** to `hermes chat`:
 
-- **Aliases:** `glm`→`zai/glm-5.2`, `gemini`/`flash`→`gemini/gemini-3.5-flash`, `deepseek`→`deepseek/deepseek-v4-pro`, `sonnet`→`anthropic/claude-sonnet-4.6`, `opus`→`anthropic/claude-opus-4.8`.
+- **Aliases:** `glm`→`zai/glm-5.3-flash`, `gemini`/`flash`→`gemini/gemini-3.8-flash`, `deepseek`→`deepseek/deepseek-v4-pro`, `sonnet`→`anthropic/claude-sonnet-5`, `opus`→`anthropic/claude-opus-5`. *(Alias targets bumped 2026-09-03 — see § Supersession.)*
 - **`provider/model`** or bare model also accepted.
-- **Default** = `$MM_RUN_MODEL` (loaded from `~/.mm/.env`) → built-in `gemini/gemini-3.5-flash`. Currently set to `glm` (see decision).
+- **Default** = `$MM_RUN_MODEL` (loaded from `~/.mm/.env`) → built-in `zai/glm-5.3-flash`. Currently set to `glm` (see decision). The built-in fallback was `gemini/gemini-3.5-flash` until 2026-09-03; it now matches the decision rather than contradicting it, so an unset `MM_RUN_MODEL` no longer silently drops unbabysat runs onto Gemini — the one model this eval found unsafe for them.
 - **`--max-turns N`** passes through to `hermes chat` (Hermes default 90 is *per conversation turn*; a `-q` one-shot is a single turn, so long sweeps need a higher cap — no global config edit needed).
 - **Pre-flight auth guard:** hard-fails if the resolved provider isn't authed, rather than letting Hermes silently fall back to another model.
 
@@ -49,6 +49,20 @@ Only GLM's cost is billing-confirmed (z.ai balance). Gemini/DeepSeek are public-
 **Default `MM_RUN_MODEL=glm`.** `mm run` is delegated, unbabysat work — reliability dominates, and GLM was the only model safe-ish without line-by-line review. The ~$1.5–2/run premium is trivial vs a confident wrong call. Override per-task: `--model gemini` (fast/cheap, will review), `--model deepseek` (bulk/narrow).
 
 Caveat: still review any archiving/destructive sweep before merge — even GLM is one bad call away from hiding work. The reviewable-branch + SWEEP-REPORT workflow is load-bearing, not polish.
+
+## Supersession (2026-09-03) — GLM-5.2 → GLM-5.3-Flash, *evidence inherited not re-run*
+
+`glm` now resolves to `zai/glm-5.3-flash` (was `zai/glm-5.2`), and `~/.hermes/config.yaml` was moved off `gemini-3.5-flash`/`gemini` onto the same pair, so Hermes and `mm run` finally agree.
+
+**Read this before trusting the table above.** Everything in the eval below was measured on **GLM-5.2**. The head-to-head has *not* been re-run on 5.3-Flash. The promotion rests on:
+
+- Published coding/agentic benchmarks where 5.3-Flash beats 5.2 (vendor-reported, not independently checked here).
+- Cost: $0.07/$0.25 per MTok vs 5.2's $0.97/$3.04 — roughly 1/9th, with a 1.31M context.
+- It has been desk's picker entry since 2026-08-31 without complaint.
+
+**The risk this takes on:** 5.3-Flash is a *flash*-tier model. This eval's entire finding was that `mm run` is unbabysat work where **judgment on partial completion** dominates, and that the two cheaper/faster models failed it in opposite directions (Gemini over-archived, DeepSeek under-read). A flash tier is exactly the shape of model that failed before. Benchmarks do not measure the thing this eval measured.
+
+**Falsification trigger:** if an unattended sweep starts making confident wrong calls — over-archiving, false-DONE, or not committing — re-run the three-repo eval on 5.3-Flash *before* reaching for prompt tuning. Reverting is one line: `glm` → `zai/glm-5.2` in `internal/cmd/run.go` (5.2 is still in the z.ai catalog and still written out in `~/.pi/agent/models.json`).
 
 ## Open questions / future work
 - **Is the gap tunable or genuine? — ANSWERED (2026-06-24, knowledgebase-v1, strict conservative prompt, all 3 models).**

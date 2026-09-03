@@ -169,14 +169,14 @@ func TestRunDispatch(t *testing.T) {
 		errContains  string
 	}{
 		{
-			name: "Simple background dispatch (default model → gemini)",
+			name: "Simple background dispatch (default model → glm)",
 			args: []string{"refactor error handling"},
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me", "chat", "-q", "refactor error handling",
-				"--model", "gemini-3.7-flash", "--provider", "gemini",
+				"--model", "glm-5.3-flash", "--provider", "zai",
 			},
-			expectedEnv:  "HERMES_INFERENCE_MODEL=gemini/gemini-3.7-flash",
+			expectedEnv:  "HERMES_INFERENCE_MODEL=zai/glm-5.3-flash",
 			expectedWait: false,
 			expectOut:    "▶ Hermes running in background",
 		},
@@ -186,10 +186,24 @@ func TestRunDispatch(t *testing.T) {
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me", "chat", "-q", "MM_THREAD_ID=thread_123 refactor keel",
-				"--model", "gemini-3.7-flash", "--provider", "gemini",
+				"--model", "glm-5.3-flash", "--provider", "zai",
 			},
 			expectedDir:  "/projects/keel",
 			expectedWait: true,
+		},
+		{
+			// Pins the gemini alias explicitly. It used to be covered
+			// incidentally by the default-model cases; the default is GLM now,
+			// so without this the alias could rot unnoticed.
+			name: "Alias gemini resolves to the current Flash",
+			args: []string{"summarise changes", "--model", "gemini"},
+			expectedArgs: []string{
+				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
+				"-s", "meta-me", "chat", "-q", "summarise changes",
+				"--model", "gemini-3.8-flash", "--provider", "gemini",
+			},
+			expectedEnv:  "HERMES_INFERENCE_MODEL=gemini/gemini-3.8-flash",
+			expectedWait: false,
 		},
 		{
 			name: "Bare model override (no provider, no /)",
@@ -208,9 +222,9 @@ func TestRunDispatch(t *testing.T) {
 			expectedArgs: []string{
 				"--worktree", "--yolo", "--accept-hooks", "--pass-session-id",
 				"-s", "meta-me", "chat", "-q", "sweep specs",
-				"--model", "glm-5.2", "--provider", "zai", "--max-turns", "250",
+				"--model", "glm-5.3-flash", "--provider", "zai", "--max-turns", "250",
 			},
-			expectedEnv:  "HERMES_INFERENCE_MODEL=zai/glm-5.2",
+			expectedEnv:  "HERMES_INFERENCE_MODEL=zai/glm-5.3-flash",
 			expectedWait: false,
 		},
 		{
@@ -223,7 +237,7 @@ func TestRunDispatch(t *testing.T) {
 		{
 			name: "Dry run output",
 			args: []string{"write docs", "--dry-run"},
-			expectOut: `HERMES_INFERENCE_MODEL=gemini/gemini-3.7-flash hermes --worktree --yolo --accept-hooks --pass-session-id -s meta-me chat -q "write docs" --model gemini-3.7-flash --provider gemini`,
+			expectOut: `HERMES_INFERENCE_MODEL=zai/glm-5.3-flash hermes --worktree --yolo --accept-hooks --pass-session-id -s meta-me chat -q "write docs" --model glm-5.3-flash --provider zai`,
 		},
 		{
 			name:        "Invalid project error",
