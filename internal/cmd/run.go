@@ -56,11 +56,11 @@ var (
 
 // modelAliases maps short, memorable names to a canonical provider/model pair,
 // reflecting the providers this setup actually has authed. Keeps `mm run --model glm`
-// one keystroke instead of `--model zai/glm-5.2` + a separate --provider.
+// one keystroke instead of `--model zai/glm-5.3-flash` + a separate --provider.
 var modelAliases = map[string]string{
-	"glm":      "zai/glm-5.2",
-	"gemini":   "gemini/gemini-3.7-flash",
-	"flash":    "gemini/gemini-3.7-flash",
+	"glm":      "zai/glm-5.3-flash",
+	"gemini":   "gemini/gemini-3.8-flash",
+	"flash":    "gemini/gemini-3.8-flash",
 	"deepseek": "deepseek/deepseek-v4-pro",
 	"kimi":     "kimi-for-coding/k3",
 	"k3":       "kimi-for-coding/k3",
@@ -70,11 +70,13 @@ var modelAliases = map[string]string{
 
 // defaultRunModel resolves the model when --model is omitted: MM_RUN_MODEL env
 // (so the default is one .env line away, no rebuild) then a built-in fallback.
+// Fallback is GLM, not Gemini: `mm run` is unbabysat delegated work where
+// reliability dominates cost (see specs/run-model-selection.md).
 func defaultRunModel() string {
 	if m := strings.TrimSpace(os.Getenv("MM_RUN_MODEL")); m != "" {
 		return m
 	}
-	return "gemini/gemini-3.7-flash"
+	return "zai/glm-5.3-flash"
 }
 
 // resolveModel turns a --model value into explicit (provider, name) parts for
@@ -112,7 +114,7 @@ Run options:
   --thread <id>           Desk chat thread ID. Hermes injects a completion message
                           when done ("results posted to admin/audit").
   --model <id>            Model: alias (glm|gemini|deepseek|kimi|sonnet|opus), provider/model,
-                          or bare model. Default: $MM_RUN_MODEL or gemini/gemini-3.7-flash.
+                          or bare model. Default: $MM_RUN_MODEL or zai/glm-5.3-flash.
   --max-turns <n>         Max tool-calling iterations (0 = Hermes default of 90). Raise
                           for long one-shot tasks; no need to touch global config.
   --skills <s1,s2>        Extra Hermes skills to preload (meta-me is always loaded)
@@ -139,7 +141,7 @@ mm run list and mm run show read those reports from the CLI.`,
 	// Dispatch flags
 	cmd.Flags().StringP("project", "p", "", "Project to work in (resolved from registered projects)")
 	cmd.Flags().StringP("thread", "t", "", "Desk chat thread ID")
-	cmd.Flags().StringP("model", "m", "", "Model: alias (glm|gemini|deepseek|kimi|sonnet|opus), provider/model, or bare model. Default: $MM_RUN_MODEL or gemini/gemini-3.7-flash")
+	cmd.Flags().StringP("model", "m", "", "Model: alias (glm|gemini|deepseek|kimi|sonnet|opus), provider/model, or bare model. Default: $MM_RUN_MODEL or zai/glm-5.3-flash")
 	cmd.Flags().Int("max-turns", 0, "Max tool-calling iterations for the run (0 = Hermes default of 90)")
 	cmd.Flags().StringP("skills", "s", "", "Extra Hermes skills to preload (comma-separated)")
 	cmd.Flags().Bool("wait", false, "Run in foreground and stream Hermes output")
