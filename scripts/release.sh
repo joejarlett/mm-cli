@@ -47,7 +47,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
   echo "build tray app for darwin/$HOST_ARCH"
   TRAY_DIR="dist-go/MetaMe Tray.app"
   rm -rf "$TRAY_DIR"
-  mkdir -p "$TRAY_DIR/Contents/MacOS"
+  mkdir -p "$TRAY_DIR/Contents/MacOS" "$TRAY_DIR/Contents/Resources"
+  cp cmd/mm-tray/assets/app.icns "$TRAY_DIR/Contents/Resources/app.icns"
 
   # Compile for current macOS architecture (needs CGO for systray)
   CGO_ENABLED=1 GOOS=darwin GOARCH=$HOST_ARCH go build -trimpath -ldflags="$LDFLAGS" \
@@ -61,6 +62,8 @@ if [ "$(uname -s)" = "Darwin" ]; then
 <dict>
     <key>CFBundleExecutable</key>
     <string>mm-tray</string>
+    <key>CFBundleIconFile</key>
+    <string>app</string>
     <key>CFBundleIdentifier</key>
     <string>uk.meta-me.tray</string>
     <key>CFBundleName</key>
@@ -86,9 +89,14 @@ EOF
   rm -rf "$TRAY_DIR"
 fi
 
-# Single SHA256SUMS file the installer can verify against — binaries only, not
-# the per-file .sha256 sidecars.
-(cd dist-go && shasum -a 256 $(ls mm-* | grep -v '\.sha256$') > SHA256SUMS)
+# Single SHA256SUMS file the installer can verify against — every published asset, not the
+# per-file .sha256 sidecars.
+#
+# The tray zip must be in here. It used to be built, staged and served while this globbed
+# only mm-*, so the one asset that ships as a signed .app was the one asset nobody could
+# check. mm-tray's updater refuses to unpack anything absent from this file, which turned a
+# silent gap into a hard failure the first time the tray tried to update itself.
+(cd dist-go && shasum -a 256 $(ls mm-* MetaMe-Tray-*.zip 2>/dev/null | grep -v '\.sha256$') > SHA256SUMS)
 
 echo ""
 echo "Built $(ls dist-go/mm-* | wc -l | tr -d ' ') binaries in dist-go/:"

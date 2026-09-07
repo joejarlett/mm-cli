@@ -27,10 +27,16 @@ APP_DIR="dist-go/$APP_NAME"
 
 # Clean up any existing app bundle
 rm -rf "$APP_DIR"
-mkdir -p "$APP_DIR/Contents/MacOS"
+mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 
 # Copy binary
 cp dist-go/mm-tray "$APP_DIR/Contents/MacOS/mm-tray"
+
+# Bundle icon. Committed rather than generated here so packaging needs no image toolchain —
+# regenerate with scripts/gen-icons.sh when app.svg changes. Without this and the
+# CFBundleIconFile key below the .app carried no icon at all: a generic blank page in Finder
+# and in Login Items, which is where it actually has to be recognised.
+cp cmd/mm-tray/assets/app.icns "$APP_DIR/Contents/Resources/app.icns"
 
 # Create Info.plist with LSUIElement set to 1 so there's no Dock icon
 cat <<EOF > "$APP_DIR/Contents/Info.plist"
@@ -40,6 +46,8 @@ cat <<EOF > "$APP_DIR/Contents/Info.plist"
 <dict>
     <key>CFBundleExecutable</key>
     <string>mm-tray</string>
+    <key>CFBundleIconFile</key>
+    <string>app</string>
     <key>CFBundleIdentifier</key>
     <string>uk.meta-me.tray</string>
     <key>CFBundleName</key>
