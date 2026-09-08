@@ -45,9 +45,9 @@ type HubGmailTrashResp struct {
 }
 
 type HubCalendarListReq struct {
-	Days        *int    `json:"days,omitempty"`
-	Q           string  `json:"q,omitempty"`
-	AccountSlug string  `json:"accountSlug,omitempty"`
+	Days        *int   `json:"days,omitempty"`
+	Q           string `json:"q,omitempty"`
+	AccountSlug string `json:"accountSlug,omitempty"`
 }
 
 type HubCalendarListResp struct {
@@ -317,6 +317,33 @@ type HubInboxReadResp struct {
 	Labels []string `json:"labels"`
 }
 
+type HubInboxAttachment struct {
+	AttachmentID string `json:"attachmentId"`
+	PartID       string `json:"partId"`
+	Filename     string `json:"filename"`
+	MimeType     string `json:"mimeType"`
+	Size         int64  `json:"size"`
+	Inline       bool   `json:"inline"`
+}
+
+type HubInboxAttachmentsResp struct {
+	ID          string               `json:"id"`
+	Subject     string               `json:"subject"`
+	Attachments []HubInboxAttachment `json:"attachments"`
+	AccountSlug *string              `json:"accountSlug"`
+}
+
+// HubInboxAttachmentResp carries one attachment's bytes. Data is
+// base64url (Gmail's encoding), not standard base64.
+type HubInboxAttachmentResp struct {
+	ID           string `json:"id"`
+	AttachmentID string `json:"attachmentId"`
+	Filename     string `json:"filename"`
+	MimeType     string `json:"mimeType"`
+	Size         int64  `json:"size"`
+	Data         string `json:"data"`
+}
+
 // ─── Instance discovery ────────────────────────────────────────────────
 
 type HubInstanceListReq struct {
@@ -365,20 +392,20 @@ type HubCaptureListReq struct {
 
 type HubCaptureProposal struct {
 	Target       HubCaptureClassifyTarget        `json:"target"`
-	Payload      map[string]any               `json:"payload"`
-	Confidence   float64                      `json:"confidence"`
-	Rationale    string                       `json:"rationale"`
+	Payload      map[string]any                  `json:"payload"`
+	Confidence   float64                         `json:"confidence"`
+	Rationale    string                          `json:"rationale"`
 	Alternatives []HubCaptureClassifyAlternative `json:"alternatives"`
-	Model        string                       `json:"model"`
-	ClassifiedAt string                       `json:"classifiedAt"`
+	Model        string                          `json:"model"`
+	ClassifiedAt string                          `json:"classifiedAt"`
 }
 
 type HubCaptureListItem struct {
-	ID        string           `json:"id"`
-	Text      string           `json:"text"`
-	Source    string           `json:"source"`
-	Status    string           `json:"status"`
-	CreatedAt string           `json:"createdAt"`
+	ID        string              `json:"id"`
+	Text      string              `json:"text"`
+	Source    string              `json:"source"`
+	Status    string              `json:"status"`
+	CreatedAt string              `json:"createdAt"`
 	Proposal  *HubCaptureProposal `json:"proposal,omitempty"`
 }
 
@@ -405,15 +432,15 @@ type HubCaptureClassifyAlternative struct {
 }
 
 type HubCaptureClassifyResp struct {
-	CaptureID    string                       `json:"captureId"`
-	Text         string                       `json:"text"`
+	CaptureID    string                          `json:"captureId"`
+	Text         string                          `json:"text"`
 	Target       HubCaptureClassifyTarget        `json:"target"`
-	Payload      map[string]any               `json:"payload"`
-	Confidence   float64                      `json:"confidence"`
-	Rationale    string                       `json:"rationale"`
+	Payload      map[string]any                  `json:"payload"`
+	Confidence   float64                         `json:"confidence"`
+	Rationale    string                          `json:"rationale"`
 	Alternatives []HubCaptureClassifyAlternative `json:"alternatives"`
-	Model        string                       `json:"model"`
-	LatencyMs    int                          `json:"latencyMs"`
+	Model        string                          `json:"model"`
+	LatencyMs    int                             `json:"latencyMs"`
 }
 
 type HubCaptureApproveReq struct {
@@ -431,8 +458,8 @@ type HubCaptureApproveOutcome struct {
 }
 
 type HubCaptureApproveResp struct {
-	CaptureID string                `json:"captureId"`
-	Status    string                `json:"status"`
+	CaptureID string                   `json:"captureId"`
+	Status    string                   `json:"status"`
 	Target    HubCaptureClassifyTarget `json:"target"`
 	Outcome   HubCaptureApproveOutcome `json:"outcome"`
 }

@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -25,12 +28,14 @@ func NewEmailCmd() *cobra.Command {
 			"    --from, list, get, resend). Admin view of system mail.",
 		Example: "  mm email search \"from:nora after:2026/05/01\"\n" +
 			"  mm email send --from joe.jarlett@gmail.com --to x@y.com --subject Hi --body \"...\"\n" +
+			"  mm email attachments <gmail-message-id>\n" +
+			"  mm email download <gmail-message-id> --all --out ~/Downloads\n" +
 			"  mm email trash <gmail-message-id>",
 	}
 	cmd.AddCommand(
 		newEmailListCmd(), newEmailGetCmd(), newEmailSendCmd(),
 		newEmailDraftCmd(), newEmailResendCmd(), newEmailSearchCmd(), newEmailReadCmd(),
-		newEmailTrashCmd(),
+		newEmailTrashCmd(), newEmailAttachmentsCmd(), newEmailDownloadCmd(),
 	)
 	return cmd
 }
@@ -525,4 +530,261 @@ func fmtRelative(iso string) string {
 		return fmt.Sprintf("%dd ago", int(diff.Hours()/24+0.5))
 	}
 	return t.Format("2006-01-02")
+}
+
+// ─── Attachments ───────────────────────────────────────────────────────
+
+func newEmailAttachmentsCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:     "attachments <gmail-message-id>",
+		Aliases: []string{"atts"},
+		Short:   "List the attachments on a Gmail message",
+		Long: "List every part of a Gmail message that carries a filename.\n\n" +
+			"Message IDs come from `mm email search`. Parts marked (inline) are\n" +
+			"usually embedded images (signatures, logos) rather than real files.\n" +
+			"Pass an attachment ID to `mm email download --attachment-id`.",
+		Args: cobra.ExactArgs(1),
+		RunE: runEmailAttachments,
+	}
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func newEmailDownloadCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:     "download <gmail-message-id>",
+		Aliases: []string{"save"},
+		Short:   "Save a Gmail message's attachment(s) to disk",
+		Long: "Save attachments from a Gmail message.\n\n" +
+			"With one attachment on the message, no flag is needed. With several,\n" +
+			"pass --all or pick one with --attachment-id (from `mm email attachments`).\n" +
+			"Files land in --out (default: the current directory) under their own\n" +
+			"filenames; an existing file is never overwritten — the new copy gets a\n" +
+			"-1, -2… suffix. Prints the saved paths, never the contents.",
+		Args: cobra.ExactArgs(1),
+		RunE: runEmailDownload,
+	}
+	c.Flags().String("attachment-id", "", "Download just this attachment")
+	c.Flags().Bool("all", false, "Download every attachment on the message")
+	c.Flags().Bool("include-inline", false, "Include inline parts (embedded images) too")
+	c.Flags().String("out", ".", "Directory to write into")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func fetchAttachmentList(cmd *cobra.Command, id string) (wire.HubInboxAttachmentsResp, error) {
+	account, _ := cmd.Flags().GetString("account")
+	req := map[string]any{"id": id}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	var resp wire.HubInboxAttachmentsResp
+	err := http.New().Hub(cmd.Context(), "email", "attachments", req, &resp)
+	return resp, err
+}
+
+func runEmailAttachments(cmd *cobra.Command, args []string) error {
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	resp, err := fetchAttachmentList(cmd, args[0])
+	if err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	if len(resp.Attachments) == 0 {
+		fmt.Println("No attachments on this message.")
+		return nil
+	}
+	if resp.Subject != "" {
+		fmt.Printf("%s\n\n", resp.Subject)
+	}
+	for _, a := range resp.Attachments {
+		marker := ""
+		if a.Inline {
+			marker = "  (inline)"
+		}
+		fmt.Printf("%-40s  %-28s  %8s%s\n",
+			truncString(a.Filename, 40), truncString(a.MimeType, 28), humanBytes(a.Size), marker)
+		fmt.Printf("  id: %s\n", a.AttachmentID)
+	}
+	fmt.Printf("\n  mm email download %s --all\n", resp.ID)
+	return nil
+}
+
+func runEmailDownload(cmd *cobra.Command, args []string) error {
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	msgID := args[0]
+	wantID, _ := cmd.Flags().GetString("attachment-id")
+	all, _ := cmd.Flags().GetBool("all")
+	includeInline, _ := cmd.Flags().GetBool("include-inline")
+	outDir, _ := cmd.Flags().GetString("out")
+	account, _ := cmd.Flags().GetString("account")
+
+	listing, err := fetchAttachmentList(cmd, msgID)
+	if err != nil {
+		return err
+	}
+
+	wanted, err := pickAttachments(listing.Attachments, wantID, all, includeInline, msgID)
+	if err != nil {
+		return err
+	}
+
+	if outDir == "" {
+		outDir = "."
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("cannot create %s: %w", outDir, err)
+	}
+
+	client := http.New()
+	type saved struct {
+		Path         string `json:"path"`
+		Filename     string `json:"filename"`
+		MimeType     string `json:"mimeType"`
+		Size         int    `json:"size"`
+		AttachmentID string `json:"attachmentId"`
+	}
+	var results []saved
+
+	for _, a := range wanted {
+		req := map[string]any{"id": msgID, "attachmentId": a.AttachmentID}
+		if account != "" {
+			req["accountSlug"] = account
+		}
+		var resp wire.HubInboxAttachmentResp
+		if err := client.Hub(cmd.Context(), "email", "attachment", req, &resp); err != nil {
+			return fmt.Errorf("%s: %w", a.Filename, err)
+		}
+		raw, err := decodeBase64URL(resp.Data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", a.Filename, err)
+		}
+		name := safeFilename(orFallback(resp.Filename, a.Filename), a.AttachmentID)
+		path, err := uniquePath(filepath.Join(outDir, name))
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(path, raw, 0o644); err != nil {
+			return fmt.Errorf("cannot write %s: %w", path, err)
+		}
+		results = append(results, saved{
+			Path: path, Filename: name, MimeType: resp.MimeType,
+			Size: len(raw), AttachmentID: a.AttachmentID,
+		})
+	}
+
+	if wantJSON {
+		out, _ := json.MarshalIndent(map[string]any{"id": msgID, "saved": results}, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	for _, r := range results {
+		fmt.Printf("✓ %s  (%s, %s)\n", r.Path, r.MimeType, humanBytes(int64(r.Size)))
+	}
+	return nil
+}
+
+// pickAttachments resolves the flags to the set to fetch. With no
+// selector and a single real attachment it picks that one; with several
+// it refuses rather than dumping the lot unasked.
+func pickAttachments(
+	list []wire.HubInboxAttachment, wantID string, all, includeInline bool, msgID string,
+) ([]wire.HubInboxAttachment, error) {
+	if len(list) == 0 {
+		return nil, fmt.Errorf("message %s has no attachments", msgID)
+	}
+	if wantID != "" {
+		for _, a := range list {
+			if a.AttachmentID == wantID {
+				return []wire.HubInboxAttachment{a}, nil
+			}
+		}
+		return nil, fmt.Errorf("no attachment %s on message %s (see: mm email attachments %s)", wantID, msgID, msgID)
+	}
+
+	var candidates []wire.HubInboxAttachment
+	for _, a := range list {
+		if a.Inline && !includeInline {
+			continue
+		}
+		candidates = append(candidates, a)
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("message %s has only inline parts; pass --include-inline to save them", msgID)
+	}
+	if all || len(candidates) == 1 {
+		return candidates, nil
+	}
+	var names []string
+	for _, a := range candidates {
+		names = append(names, a.Filename)
+	}
+	return nil, fmt.Errorf("message %s has %d attachments (%s) — pass --all, or --attachment-id from `mm email attachments %s`",
+		msgID, len(candidates), strings.Join(names, ", "), msgID)
+}
+
+// decodeBase64URL accepts Gmail's unpadded base64url and, defensively,
+// the padded and standard-alphabet variants.
+func decodeBase64URL(s string) ([]byte, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, fmt.Errorf("empty attachment body")
+	}
+	for _, enc := range []*base64.Encoding{
+		base64.RawURLEncoding, base64.URLEncoding, base64.RawStdEncoding, base64.StdEncoding,
+	} {
+		if b, err := enc.DecodeString(s); err == nil {
+			return b, nil
+		}
+	}
+	return nil, fmt.Errorf("attachment body is not valid base64")
+}
+
+var unsafeNameRe = regexp.MustCompile(`[^\w.\-+ ()\[\]]+`)
+
+// safeFilename reduces a mail-supplied filename to a plain basename —
+// the sender chose it, so it can contain separators, dot-dot, or control
+// characters. Falls back to the attachment ID when nothing survives.
+func safeFilename(name, attachmentID string) string {
+	name = filepath.Base(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))
+	name = unsafeNameRe.ReplaceAllString(name, "_")
+	name = strings.Trim(name, " .")
+	if name == "" || name == "_" {
+		suffix := attachmentID
+		if len(suffix) > 12 {
+			suffix = suffix[:12]
+		}
+		return "attachment-" + suffix
+	}
+	return truncString(name, 120)
+}
+
+// uniquePath never clobbers: foo.pdf → foo-1.pdf → foo-2.pdf …
+func uniquePath(path string) (string, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return path, nil
+	}
+	ext := filepath.Ext(path)
+	stem := strings.TrimSuffix(path, ext)
+	for i := 1; i < 1000; i++ {
+		candidate := fmt.Sprintf("%s-%d%s", stem, i, ext)
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("cannot find a free filename near %s", path)
+}
+
+func humanBytes(n int64) string {
+	switch {
+	case n < 1024:
+		return fmt.Sprintf("%dB", n)
+	case n < 1024*1024:
+		return fmt.Sprintf("%.1fKB", float64(n)/1024)
+	}
+	return fmt.Sprintf("%.1fMB", float64(n)/(1024*1024))
 }
