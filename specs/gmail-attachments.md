@@ -104,9 +104,24 @@ mm email attachments 19f6f9b0fad82fdd
 mm email download 19f6f9b0fad82fdd --all --out ~/Downloads
 ```
 
-## Also found, not fixed
+## Also fixed — the CLI parity test
 
-`TestCliDrift` is **dead and failing on a clean tree** — it reads `src/index.ts`, deleted in the
-2026-06-11 TS→Go port that this repo's own CLAUDE.md documents. It fails identically with these
-changes stashed, and it is the only failing test in `go test ./...`, so it currently masks real
-breakage. Deleting it is a one-liner; left alone because removing a test is the owner's call.
+`TestCliDrift` was **dead and failing on a clean tree**: it read `src/index.ts`, deleted in the
+2026-06-11 TS→Go port, so it aborted before its first assertion and was the only red test in
+`go test ./...` — masking real breakage. It is gone, along with the duplicate command tree it
+built to compare against (`dummyRootCmd`), which had itself drifted: no `overview`, `surface`,
+`host` or `convert`, and none of the registry-driven app commands.
+
+Replaced by `cmd/mm/root_test.go`, which asserts against the **real** `newRootCmd()` rather than
+a copy of it:
+
+- `TestRootCommandSurface` — a hand-maintained golden list of every top-level verb and alias, so
+  adding or removing one is a deliberate diff in review, not a silent side effect.
+- `TestEveryRootCommandIsGrouped` — a bare `root.AddCommand` compiles and runs but drops the
+  command into Cobra's anonymous "Additional Commands" heading; this catches the bypass.
+- `TestNoShadowedRootNames` — Cobra resolves a duplicate name or alias silently by registration
+  order, leaving one command unreachable.
+- `TestRootHelpListsEveryCommand` — ties the golden list to what `mm --help` actually prints.
+
+All four were mutation-checked (dropped registration, bypassed `add()`, alias collision) to
+confirm they fail when they should.
