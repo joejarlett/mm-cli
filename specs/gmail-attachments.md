@@ -1,9 +1,12 @@
 # Gmail attachments — `mm email attachments` / `mm email download`
 
-**Status:** written and pushed 2026-09-08, **not yet deployed** — see *Pending* at the
-foot of this doc. The commands return `No handler registered for email.attachments` until the
-gateway and hub are deployed. Companion to [gws-cli-upgrades.md](gws-cli-upgrades.md),
+**Status:** **live** as of 2026-09-08 — gateway, hub and CLI all deployed, and verified
+end to end against a real message. Companion to [gws-cli-upgrades.md](gws-cli-upgrades.md),
 which closed the Gmail draft/send/trash gap the same way.
+
+The first deploy shipped a bug that made `download` fail on every message; see
+*[Gmail's attachment ids are per-response](#gmails-attachment-ids-are-per-response)* below,
+which is the part of this doc worth reading if you touch attachments again.
 
 **Problem:** `mm email search` and `mm email read` cover the inbox, but an attachment could
 only be retrieved by hand in the browser. `mm email --help` had no verb for it.
@@ -35,15 +38,18 @@ Two actions beside `email.search` / `email.read`:
 
 ```
 email.attachments({id, accountSlug?})
-  → { id, subject, attachments: [{attachmentId, partId, filename, mimeType, size, inline}] }
-email.attachment({id, attachmentId, accountSlug?})
-  → { id, attachmentId, filename, mimeType, size, data }
+  → { id, subject, attachments: [{partId, attachmentId, filename, mimeType, size, inline}] }
+email.attachment({id, partId, accountSlug?})
+  → { id, partId, attachmentId, filename, mimeType, size, data }
 ```
 
 `attachments` walks the MIME tree of a `format: 'full'` read and reports every part carrying a
 filename — `inline: true` marks embedded images (signatures, logos) rather than real files.
 `attachment` re-reads the message so it can name the file and enforce a 25 MB cap *before*
 pulling bytes, then falls back to the part's own `body.data` when Gmail inlined it.
+
+The part is addressed by **`partId`** — its MIME position in the message (`1`, `0.2`, …).
+`attachmentId` is accepted as a fallback selector but must not be relied on; see below.
 
 Both are added to `forbiddenOnPlatformWide` in `src/routes/api/mm/+server.ts`: like
 `email.read`, they read the caller-userId's actual Gmail, so they must not be reachable over
@@ -52,15 +58,18 @@ the platform-wide shared secret.
 ### 3. CLI — `internal/cmd/email.go`
 
 ```bash
-mm email attachments <gmail-message-id>            # filename, mime type, size, attachment id
+mm email attachments <gmail-message-id>            # [part id] filename, mime type, size
 mm email download <gmail-message-id> \
-    [--attachment-id <id> | --all] \
+    [--part <part-id> | --name <substring> | --all] \
     [--include-inline] [--out <dir>] [--account <slug>]
 ```
 
 `download` with no selector saves the message's single attachment; with several it refuses and
-names them rather than dumping the lot unasked. `--out` defaults to the current directory and
-is created if missing. Both support `--json`.
+names them rather than dumping the lot unasked. `--part` takes the bracketed id from the
+listing; `--name` matches a filename substring case-insensitively and refuses an ambiguous
+match. Either one reaches an inline part without `--include-inline`, since naming a specific
+part is unambiguous. `--out` defaults to the current directory and is created if missing.
+Both support `--json`.
 
 **Two safety rules, because filenames come from the sender:**
 
@@ -82,26 +91,69 @@ Neither command ever prints file contents.
 
 ---
 
-## Pending — two deploys
+## Gmail's attachment ids are per-response
 
-The code is on `main` in all three repos (`ff3472f` gateway, `85dc410` hub, `168764e` mm-cli) and
-is **inert until deployed**. The CLI dispatches correctly; the hub has no handler yet. Deploy ships
-pushed code, so these two commands ship exactly what is already on `main`:
+The first deploy of this feature shipped a `download` that failed on **every** message, and the
+reason is worth recording because nothing in Gmail's docs leads with it:
+
+> `payload.parts[].body.attachmentId` is regenerated on every `users.messages.get`.
+
+Two reads a second apart return different `attachmentId` strings for the same part. It is a
+per-response token, not a durable handle:
 
 ```bash
-cd ~/Documents/dev/google-workspace-gateway && bash scripts/deploy.sh   # gateway FIRST
-cd ~/Documents/dev/meta-me.uk && npm run deploy                          # then the hub
+mm email attachments 19f6f9b0fad82fdd --json | jq -r '.attachments[].attachmentId'
+# ANGjdJ8_G-K5Eyug9olC…
+mm email attachments 19f6f9b0fad82fdd --json | jq -r '.attachments[].attachmentId'
+# ANGjdJ9yqwOSXO5If8zD…   ← same part, different id
 ```
 
-Order matters: the hub calls the gateway endpoint, so a hub-first deploy leaves a window where
-`email.attachment` 404s against the old gateway.
+The original design had the CLI list the parts (read 1), then pass the chosen `attachmentId`
+back to `email.attachment`, which re-read the message (read 2) and searched read 2's MIME tree
+for read 1's id. That never matched, so every download 404'd with
+`no attachment <id> on message <id>` — the hub's own error, not Gmail's, which is what made it
+look like a lookup bug rather than an id-lifetime one.
 
-Verify against an innocuous message — a Brunel Incubator newsletter carrying a PDF, deliberately
-nothing near a medical record:
+**The fix keeps the re-read and changes the handle.** The re-read is what names the file and
+enforces the 25 MB cap *before* any bytes are pulled; the alternative — carrying filename and
+size through from the caller's listing — would make a server-side size limit depend on a
+client-supplied number, which is not a limit. So instead the part is addressed by `partId`,
+its stable MIME position, and the handler calls the gateway with the `attachmentId` from **its
+own** read — the only one guaranteed to still resolve.
+
+Consequences, if you touch this again:
+
+- `partId` is the handle in the payload, the CLI flag (`--part`) and the listing output. The
+  listing no longer prints the 400-character `attachmentId` blob at all; it is still in
+  `--json`, marked volatile, and is echoed in the response as the id actually used.
+- Part ids are **not** always integers — nested multipart messages give `0.2`, `1.1`. Anything
+  parsing them as numbers is wrong.
+- `internal/cmd/email_attachments_test.go` has `TestDownloadAddressesPartsByPartID`, which
+  fails if the download request ever carries `attachmentId` again. Its `att()` helper sets
+  every fixture's `AttachmentID` to `volatile-<partId>` so no test can accidentally depend on it.
+
+Verified end to end against a Brunel Incubator newsletter carrying a PDF and a calendar invite:
 
 ```bash
 mm email attachments 19f6f9b0fad82fdd
 mm email download 19f6f9b0fad82fdd --all --out ~/Downloads
+mm email download 19f6f9b0fad82fdd --part 1
+mm email download 19f6f9b0fad82fdd --name infographic
+```
+
+Both files came back with correct bytes (`file` reports a 1-page PDF v1.4 and a vCalendar),
+the second fetch of the same name landed as `…-1.pdf` rather than overwriting, and each
+error path (unknown part, unmatched name, both selectors, no selector with several parts)
+reports what to do next.
+
+## Deploy order
+
+Gateway before hub — the hub calls the gateway endpoint, so a hub-first deploy leaves a window
+where `email.attachment` 404s against the old gateway.
+
+```bash
+cd ~/Documents/dev/google-workspace-gateway && bash scripts/deploy.sh   # gateway FIRST
+cd ~/Documents/dev/meta-me.uk && npm run deploy                          # then the hub
 ```
 
 ## Also fixed — the CLI parity test

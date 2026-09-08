@@ -542,7 +542,7 @@ func newEmailAttachmentsCmd() *cobra.Command {
 		Long: "List every part of a Gmail message that carries a filename.\n\n" +
 			"Message IDs come from `mm email search`. Parts marked (inline) are\n" +
 			"usually embedded images (signatures, logos) rather than real files.\n" +
-			"Pass an attachment ID to `mm email download --attachment-id`.",
+			"Each part's `part:` value is the handle for `mm email download --part`.",
 		Args: cobra.ExactArgs(1),
 		RunE: runEmailAttachments,
 	}
@@ -557,14 +557,16 @@ func newEmailDownloadCmd() *cobra.Command {
 		Short:   "Save a Gmail message's attachment(s) to disk",
 		Long: "Save attachments from a Gmail message.\n\n" +
 			"With one attachment on the message, no flag is needed. With several,\n" +
-			"pass --all or pick one with --attachment-id (from `mm email attachments`).\n" +
+			"pass --all, or pick one with --part (the bracketed part id shown by\n" +
+			"`mm email attachments`, e.g. 1 or 0.2) or --name (a filename substring).\n" +
 			"Files land in --out (default: the current directory) under their own\n" +
 			"filenames; an existing file is never overwritten — the new copy gets a\n" +
 			"-1, -2… suffix. Prints the saved paths, never the contents.",
 		Args: cobra.ExactArgs(1),
 		RunE: runEmailDownload,
 	}
-	c.Flags().String("attachment-id", "", "Download just this attachment")
+	c.Flags().String("part", "", "Download just this MIME part id (see `mm email attachments`)")
+	c.Flags().String("name", "", "Download the attachment whose filename contains this")
 	c.Flags().Bool("all", false, "Download every attachment on the message")
 	c.Flags().Bool("include-inline", false, "Include inline parts (embedded images) too")
 	c.Flags().String("out", ".", "Directory to write into")
@@ -606,20 +608,23 @@ func runEmailAttachments(cmd *cobra.Command, args []string) error {
 		if a.Inline {
 			marker = "  (inline)"
 		}
-		fmt.Printf("%-40s  %-28s  %8s%s\n",
-			truncString(a.Filename, 40), truncString(a.MimeType, 28), humanBytes(a.Size), marker)
-		fmt.Printf("  id: %s\n", a.AttachmentID)
+		fmt.Printf("%-6s  %-40s  %-28s  %8s%s\n",
+			"["+a.PartID+"]", truncString(a.Filename, 40), truncString(a.MimeType, 28),
+			humanBytes(a.Size), marker)
 	}
 	fmt.Printf("\n  mm email download %s --all\n", resp.ID)
+	fmt.Printf("  mm email download %s --part %s\n", resp.ID, resp.Attachments[0].PartID)
 	return nil
 }
 
 func runEmailDownload(cmd *cobra.Command, args []string) error {
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 	msgID := args[0]
-	wantID, _ := cmd.Flags().GetString("attachment-id")
-	all, _ := cmd.Flags().GetBool("all")
-	includeInline, _ := cmd.Flags().GetBool("include-inline")
+	var sel attachmentSelector
+	sel.part, _ = cmd.Flags().GetString("part")
+	sel.name, _ = cmd.Flags().GetString("name")
+	sel.all, _ = cmd.Flags().GetBool("all")
+	sel.includeInline, _ = cmd.Flags().GetBool("include-inline")
 	outDir, _ := cmd.Flags().GetString("out")
 	account, _ := cmd.Flags().GetString("account")
 
@@ -628,7 +633,7 @@ func runEmailDownload(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	wanted, err := pickAttachments(listing.Attachments, wantID, all, includeInline, msgID)
+	wanted, err := pickAttachments(listing.Attachments, sel, msgID)
 	if err != nil {
 		return err
 	}
@@ -642,16 +647,19 @@ func runEmailDownload(cmd *cobra.Command, args []string) error {
 
 	client := http.New()
 	type saved struct {
-		Path         string `json:"path"`
-		Filename     string `json:"filename"`
-		MimeType     string `json:"mimeType"`
-		Size         int    `json:"size"`
-		AttachmentID string `json:"attachmentId"`
+		Path     string `json:"path"`
+		PartID   string `json:"partId"`
+		Filename string `json:"filename"`
+		MimeType string `json:"mimeType"`
+		Size     int    `json:"size"`
 	}
 	var results []saved
 
 	for _, a := range wanted {
-		req := map[string]any{"id": msgID, "attachmentId": a.AttachmentID}
+		// partId, not attachmentId: Gmail mints a fresh attachmentId on every
+		// read, so the one in this listing is already stale. The hub re-reads
+		// the message and uses that read's id.
+		req := map[string]any{"id": msgID, "partId": a.PartID}
 		if account != "" {
 			req["accountSlug"] = account
 		}
@@ -663,7 +671,7 @@ func runEmailDownload(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", a.Filename, err)
 		}
-		name := safeFilename(orFallback(resp.Filename, a.Filename), a.AttachmentID)
+		name := safeFilename(orFallback(resp.Filename, a.Filename), a.PartID)
 		path, err := uniquePath(filepath.Join(outDir, name))
 		if err != nil {
 			return err
@@ -672,8 +680,8 @@ func runEmailDownload(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("cannot write %s: %w", path, err)
 		}
 		results = append(results, saved{
-			Path: path, Filename: name, MimeType: resp.MimeType,
-			Size: len(raw), AttachmentID: a.AttachmentID,
+			Path: path, PartID: a.PartID, Filename: name,
+			MimeType: resp.MimeType, Size: len(raw),
 		})
 	}
 
@@ -688,27 +696,60 @@ func runEmailDownload(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// pickAttachments resolves the flags to the set to fetch. With no
-// selector and a single real attachment it picks that one; with several
-// it refuses rather than dumping the lot unasked.
+// attachmentSelector is how the download flags name the parts to fetch.
+// Zero value means "the message's one real attachment, if it has exactly one".
+type attachmentSelector struct {
+	part          string // exact MIME partId
+	name          string // filename substring, case-insensitive
+	all           bool
+	includeInline bool
+}
+
+// pickAttachments resolves the selector to the set to fetch. An explicit
+// --part or --name reaches inline parts too, since asking for one by name is
+// unambiguous. With no selector it takes the sole real attachment, and with
+// several it refuses and lists them rather than dumping the lot unasked.
 func pickAttachments(
-	list []wire.HubInboxAttachment, wantID string, all, includeInline bool, msgID string,
+	list []wire.HubInboxAttachment, sel attachmentSelector, msgID string,
 ) ([]wire.HubInboxAttachment, error) {
 	if len(list) == 0 {
 		return nil, fmt.Errorf("message %s has no attachments", msgID)
 	}
-	if wantID != "" {
+	if sel.part != "" && sel.name != "" {
+		return nil, fmt.Errorf("pass --part or --name, not both")
+	}
+
+	if sel.part != "" {
 		for _, a := range list {
-			if a.AttachmentID == wantID {
+			if a.PartID == sel.part {
 				return []wire.HubInboxAttachment{a}, nil
 			}
 		}
-		return nil, fmt.Errorf("no attachment %s on message %s (see: mm email attachments %s)", wantID, msgID, msgID)
+		return nil, fmt.Errorf("no part %s on message %s (see: mm email attachments %s)", sel.part, msgID, msgID)
+	}
+
+	if sel.name != "" {
+		var hits []wire.HubInboxAttachment
+		needle := strings.ToLower(sel.name)
+		for _, a := range list {
+			if strings.Contains(strings.ToLower(a.Filename), needle) {
+				hits = append(hits, a)
+			}
+		}
+		switch len(hits) {
+		case 1:
+			return hits, nil
+		case 0:
+			return nil, fmt.Errorf("no attachment on message %s matches %q (see: mm email attachments %s)", msgID, sel.name, msgID)
+		default:
+			return nil, fmt.Errorf("%q matches %d attachments on message %s (%s) — narrow it, or use --part",
+				sel.name, len(hits), msgID, strings.Join(filenames(hits), ", "))
+		}
 	}
 
 	var candidates []wire.HubInboxAttachment
 	for _, a := range list {
-		if a.Inline && !includeInline {
+		if a.Inline && !sel.includeInline {
 			continue
 		}
 		candidates = append(candidates, a)
@@ -716,15 +757,19 @@ func pickAttachments(
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("message %s has only inline parts; pass --include-inline to save them", msgID)
 	}
-	if all || len(candidates) == 1 {
+	if sel.all || len(candidates) == 1 {
 		return candidates, nil
 	}
-	var names []string
-	for _, a := range candidates {
-		names = append(names, a.Filename)
+	return nil, fmt.Errorf("message %s has %d attachments (%s) — pass --all, or pick one with --part or --name (see: mm email attachments %s)",
+		msgID, len(candidates), strings.Join(filenames(candidates), ", "), msgID)
+}
+
+func filenames(list []wire.HubInboxAttachment) []string {
+	out := make([]string, 0, len(list))
+	for _, a := range list {
+		out = append(out, a.Filename)
 	}
-	return nil, fmt.Errorf("message %s has %d attachments (%s) — pass --all, or --attachment-id from `mm email attachments %s`",
-		msgID, len(candidates), strings.Join(names, ", "), msgID)
+	return out
 }
 
 // decodeBase64URL accepts Gmail's unpadded base64url and, defensively,
@@ -748,15 +793,18 @@ var unsafeNameRe = regexp.MustCompile(`[^\w.\-+ ()\[\]]+`)
 
 // safeFilename reduces a mail-supplied filename to a plain basename —
 // the sender chose it, so it can contain separators, dot-dot, or control
-// characters. Falls back to the attachment ID when nothing survives.
-func safeFilename(name, attachmentID string) string {
+// characters. Falls back to the part ID when nothing survives.
+func safeFilename(name, partID string) string {
 	name = filepath.Base(strings.ReplaceAll(strings.TrimSpace(name), "\\", "/"))
 	name = unsafeNameRe.ReplaceAllString(name, "_")
 	name = strings.Trim(name, " .")
 	if name == "" || name == "_" {
-		suffix := attachmentID
+		suffix := partID
 		if len(suffix) > 12 {
 			suffix = suffix[:12]
+		}
+		if suffix == "" {
+			suffix = "part"
 		}
 		return "attachment-" + suffix
 	}
