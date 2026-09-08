@@ -98,6 +98,18 @@ fi
 # silent gap into a hard failure the first time the tray tried to update itself.
 (cd dist-go && shasum -a 256 $(ls mm-* MetaMe-Tray-*.zip 2>/dev/null | grep -v '\.sha256$') > SHA256SUMS)
 
+# Tag the commit this release was built from. Eight releases (v0.1.1…v0.2.5)
+# had to be backfilled on 2026-09-08 by reading the version stamp back out of
+# the published binaries, because nothing here ever recorded the mapping — so
+# `git log v0.2.3..v0.2.4` was impossible. Not pushed from a build script;
+# `git push origin $VERSION` is left to the caller.
+if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+  echo "tag $VERSION already exists at $(git rev-parse --short "$VERSION^{commit}")"
+else
+  git tag -a "$VERSION" -m "mm $VERSION — released $DATE" "$COMMIT"
+  echo "tagged $VERSION -> $COMMIT   (push it: git push origin $VERSION)"
+fi
+
 echo ""
 echo "Built $(ls dist-go/mm-* | wc -l | tr -d ' ') binaries in dist-go/:"
 ls -la dist-go/ | grep -E '^-' | awk '{printf "  %s  %s\n", $5, $NF}'
@@ -118,7 +130,8 @@ if [ -d "$HOME/Documents/dev/meta-me.uk/static/dist" ]; then
   echo ""
   echo "Staged at $DEST"
   echo "Staged installer at meta-me.uk/static/install.sh"
-  echo "Next: commit + push the static dir in meta-me.uk, then 'docker compose build meta-me-uk && up -d meta-me-uk'"
+  echo "Next: commit + push the static dir in meta-me.uk, then 'npm run deploy' there"
+  echo "      and 'git push origin $VERSION' here"
 else
   echo ""
   echo "(meta-me.uk static dir not found at \$HOME — staging skipped)"
