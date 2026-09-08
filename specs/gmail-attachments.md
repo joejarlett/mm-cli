@@ -1,6 +1,8 @@
 # Gmail attachments — `mm email attachments` / `mm email download`
 
-**Status:** implemented 2026-09-08. Companion to [gws-cli-upgrades.md](gws-cli-upgrades.md),
+**Status:** written and pushed 2026-09-08, **not yet deployed** — see *Pending* at the
+foot of this doc. The commands return `No handler registered for email.attachments` until the
+gateway and hub are deployed. Companion to [gws-cli-upgrades.md](gws-cli-upgrades.md),
 which closed the Gmail draft/send/trash gap the same way.
 
 **Problem:** `mm email search` and `mm email read` cover the inbox, but an attachment could
@@ -77,3 +79,34 @@ Neither command ever prints file contents.
   today, and `drive.download` has the same shape.
 - **Attaching files on send.** The gateway's `SendEmailRequest` already accepts `attachments`;
   `mm email send` doesn't expose them. Separate gap, separate change.
+
+---
+
+## Pending — two deploys
+
+The code is on `main` in all three repos (`ff3472f` gateway, `85dc410` hub, `168764e` mm-cli) and
+is **inert until deployed**. The CLI dispatches correctly; the hub has no handler yet. Deploy ships
+pushed code, so these two commands ship exactly what is already on `main`:
+
+```bash
+cd ~/Documents/dev/google-workspace-gateway && bash scripts/deploy.sh   # gateway FIRST
+cd ~/Documents/dev/meta-me.uk && npm run deploy                          # then the hub
+```
+
+Order matters: the hub calls the gateway endpoint, so a hub-first deploy leaves a window where
+`email.attachment` 404s against the old gateway.
+
+Verify against an innocuous message — a Brunel Incubator newsletter carrying a PDF, deliberately
+nothing near a medical record:
+
+```bash
+mm email attachments 19f6f9b0fad82fdd
+mm email download 19f6f9b0fad82fdd --all --out ~/Downloads
+```
+
+## Also found, not fixed
+
+`TestCliDrift` is **dead and failing on a clean tree** — it reads `src/index.ts`, deleted in the
+2026-06-11 TS→Go port that this repo's own CLAUDE.md documents. It fails identically with these
+changes stashed, and it is the only failing test in `go test ./...`, so it currently masks real
+breakage. Deleting it is a one-liner; left alone because removing a test is the owner's call.
