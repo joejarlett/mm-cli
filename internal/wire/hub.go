@@ -168,7 +168,24 @@ type HubDriveUpdateReq struct {
 	Name          string   `json:"name,omitempty"`
 	AddParents    []string `json:"addParents,omitempty"`
 	RemoveParents []string `json:"removeParents,omitempty"`
-	AccountSlug   string   `json:"accountSlug,omitempty"`
+	// Pointer so `false` (restore from Trash) is sent rather than omitted.
+	Trashed     *bool  `json:"trashed,omitempty"`
+	AccountSlug string `json:"accountSlug,omitempty"`
+}
+
+type HubDriveCopyReq struct {
+	FileID      string   `json:"fileId"`
+	Name        string   `json:"name,omitempty"`
+	Parents     []string `json:"parents,omitempty"`
+	AccountSlug string   `json:"accountSlug,omitempty"`
+}
+
+type HubDriveCopyResp struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	MimeType    string   `json:"mimeType"`
+	Parents     []string `json:"parents"`
+	WebViewLink *string  `json:"webViewLink"`
 }
 
 type HubDriveUpdateResp struct {

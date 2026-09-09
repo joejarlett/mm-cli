@@ -16,8 +16,9 @@ import (
 
 // NewDriveCmd builds the `mm drive` tree.
 func NewDriveCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "drive", Short: "Google Drive — list, read, doc-from-markdown, rename/move"}
-	cmd.AddCommand(newDriveListCmd(), newDriveReadCmd(), newDriveGetCmd(), newDriveDownloadCmd(), newDriveDocCmd(), newDriveMoveCmd())
+	cmd := &cobra.Command{Use: "drive", Short: "Google Drive — list, read, doc-from-markdown, copy, rename/move, trash"}
+	cmd.AddCommand(newDriveListCmd(), newDriveReadCmd(), newDriveGetCmd(), newDriveDownloadCmd(),
+		newDriveDocCmd(), newDriveMoveCmd(), newDriveCopyCmd(), newDriveRemoveCmd())
 	return cmd
 }
 
@@ -99,6 +100,103 @@ func newDriveMoveCmd() *cobra.Command {
 	c.Flags().String("unparent", "", "Remove a parent (move out of)")
 	c.Flags().String("account", "", "Pick a linked Google account")
 	return c
+}
+
+func newDriveCopyCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:     "cp [id|url]",
+		Aliases: []string{"copy"},
+		Short:   "Copy a file, optionally renaming it and placing it in a folder",
+		Long: "Copy a file server-side.\n\n" +
+			"Unlike building a new doc from exported HTML, a copy keeps page setup,\n" +
+			"image positioning and styles exactly, because nothing is re-interpreted.\n" +
+			"This is the way to work from a template document.",
+		Args: cobra.ExactArgs(1),
+		RunE: runDriveCopy,
+	}
+	c.Flags().String("name", "", "Name for the copy (default: Drive's \"Copy of …\")")
+	c.Flags().String("folder", "", "Put the copy in this folder id")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func newDriveRemoveCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:     "rm [id|url]",
+		Aliases: []string{"trash"},
+		Short:   "Move a file to Trash (or restore it with --restore)",
+		Long: "Move a file to the owner's Trash.\n\n" +
+			"This is reversible: Drive keeps trashed files for 30 days and\n" +
+			"`mm drive rm <id> --restore` puts one back. Nothing here deletes\n" +
+			"permanently - empty the Trash in Drive for that.",
+		Args: cobra.ExactArgs(1),
+		RunE: runDriveRemove,
+	}
+	c.Flags().Bool("restore", false, "Restore from Trash instead of trashing")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func runDriveCopy(cmd *cobra.Command, args []string) error {
+	id := driveFileID(args[0])
+	name, _ := cmd.Flags().GetString("name")
+	folder, _ := cmd.Flags().GetString("folder")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	req := map[string]any{"fileId": id}
+	if name = strings.TrimSpace(name); name != "" {
+		req["name"] = name
+	}
+	if folder = strings.TrimSpace(folder); folder != "" {
+		req["parents"] = []string{driveFileID(folder)}
+	}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	client := http.New()
+	var resp wire.HubDriveCopyResp
+	if err := client.Hub(cmd.Context(), "drive", "copy", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	fmt.Printf("✓ Copied to: %s\n", resp.Name)
+	if resp.WebViewLink != nil && *resp.WebViewLink != "" {
+		fmt.Printf("  %s\n", *resp.WebViewLink)
+	}
+	return nil
+}
+
+func runDriveRemove(cmd *cobra.Command, args []string) error {
+	id := driveFileID(args[0])
+	restore, _ := cmd.Flags().GetBool("restore")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	req := map[string]any{"fileId": id, "trashed": !restore}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	client := http.New()
+	var resp wire.HubDriveUpdateResp
+	if err := client.Hub(cmd.Context(), "drive", "update", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	if restore {
+		fmt.Printf("✓ Restored from Trash: %s\n", resp.Name)
+	} else {
+		fmt.Printf("✓ Moved to Trash: %s\n", resp.Name)
+	}
+	return nil
 }
 
 func runDriveList(cmd *cobra.Command, _ []string) error {
