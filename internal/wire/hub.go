@@ -180,6 +180,14 @@ type HubDriveCopyReq struct {
 	AccountSlug string   `json:"accountSlug,omitempty"`
 }
 
+type HubDriveUploadResp struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	MimeType    string   `json:"mimeType"`
+	Parents     []string `json:"parents"`
+	WebViewLink *string  `json:"webViewLink"`
+}
+
 type HubDriveReplaceTextResp struct {
 	DocumentID   string `json:"documentId"`
 	Replacements []struct {

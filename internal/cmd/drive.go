@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -18,7 +21,7 @@ import (
 func NewDriveCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "drive", Short: "Google Drive — list, read, doc-from-markdown, copy, rename/move, trash"}
 	cmd.AddCommand(newDriveListCmd(), newDriveReadCmd(), newDriveGetCmd(), newDriveDownloadCmd(),
-		newDriveDocCmd(), newDriveMoveCmd(), newDriveCopyCmd(), newDriveRemoveCmd(), newDriveReplaceCmd())
+		newDriveDocCmd(), newDriveMoveCmd(), newDriveCopyCmd(), newDriveRemoveCmd(), newDriveReplaceCmd(), newDriveUploadCmd())
 	return cmd
 }
 
@@ -135,6 +138,90 @@ func newDriveRemoveCmd() *cobra.Command {
 	c.Flags().Bool("restore", false, "Restore from Trash instead of trashing")
 	c.Flags().String("account", "", "Pick a linked Google account")
 	return c
+}
+
+// Drive takes the bytes as multipart, but the hub RPC is JSON, so the file is
+// base64'd on the way through. That inflates it by a third — hence a limit
+// well below the hub's, to catch a mistaken upload before it is encoded.
+const maxUploadBytes = 25 * 1024 * 1024
+
+func newDriveUploadCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "upload [path]",
+		Short: "Upload a local file to Drive",
+		Long: "Upload a local file to Drive.\n\n" +
+			"Keeps the file as-is — use `mm drive doc` instead to convert markdown\n" +
+			"or HTML into a native Google Doc.",
+		Args: cobra.ExactArgs(1),
+		RunE: runDriveUpload,
+	}
+	c.Flags().String("name", "", "Name in Drive (default: the file's own name)")
+	c.Flags().String("folder", "", "Put it in this folder id")
+	c.Flags().String("mime", "", "Content type (default: guessed from the extension)")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func runDriveUpload(cmd *cobra.Command, args []string) error {
+	path := args[0]
+	name, _ := cmd.Flags().GetString("name")
+	folder, _ := cmd.Flags().GetString("folder")
+	mimeFlag, _ := cmd.Flags().GetString("mime")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("Couldn't read %s: %w", path, err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("%s is a directory; upload a single file", path)
+	}
+	if info.Size() > maxUploadBytes {
+		return fmt.Errorf("%s is %dMB; the limit is %dMB", path, info.Size()/1024/1024, maxUploadBytes/1024/1024)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("Couldn't read %s: %w", path, err)
+	}
+
+	if name = strings.TrimSpace(name); name == "" {
+		name = filepath.Base(path)
+	}
+	contentType := strings.TrimSpace(mimeFlag)
+	if contentType == "" {
+		contentType = mime.TypeByExtension(filepath.Ext(path))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+	}
+
+	req := map[string]any{
+		"filename":      name,
+		"contentBase64": base64.StdEncoding.EncodeToString(b),
+		"mimeType":      contentType,
+	}
+	if folder = strings.TrimSpace(folder); folder != "" {
+		req["parents"] = []string{driveFileID(folder)}
+	}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	client := http.New()
+	var resp wire.HubDriveUploadResp
+	if err := client.Hub(cmd.Context(), "drive", "upload", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+	fmt.Printf("✓ Uploaded %s (%s)\n", resp.Name, resp.MimeType)
+	if resp.WebViewLink != nil && *resp.WebViewLink != "" {
+		fmt.Printf("  %s\n", *resp.WebViewLink)
+	}
+	return nil
 }
 
 func newDriveReplaceCmd() *cobra.Command {
