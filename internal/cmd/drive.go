@@ -18,7 +18,7 @@ import (
 func NewDriveCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "drive", Short: "Google Drive — list, read, doc-from-markdown, copy, rename/move, trash"}
 	cmd.AddCommand(newDriveListCmd(), newDriveReadCmd(), newDriveGetCmd(), newDriveDownloadCmd(),
-		newDriveDocCmd(), newDriveMoveCmd(), newDriveCopyCmd(), newDriveRemoveCmd())
+		newDriveDocCmd(), newDriveMoveCmd(), newDriveCopyCmd(), newDriveRemoveCmd(), newDriveReplaceCmd())
 	return cmd
 }
 
@@ -135,6 +135,90 @@ func newDriveRemoveCmd() *cobra.Command {
 	c.Flags().Bool("restore", false, "Restore from Trash instead of trashing")
 	c.Flags().String("account", "", "Pick a linked Google account")
 	return c
+}
+
+func newDriveReplaceCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "replace [id|url]",
+		Short: "Replace literal strings inside a Google Doc",
+		Long: "Substitute text throughout an existing Doc, in place.\n\n" +
+			"Pairs with `mm drive cp`: copy a template, then swap the fields. The\n" +
+			"formatting survives because nothing is rebuilt.\n\n" +
+			"Pass --set 'find=replace' once per substitution, or --json-file with a\n" +
+			"[{\"find\":..,\"replace\":..}] array when the values contain '='.\n\n" +
+			"Exits non-zero if any find matched nothing, so a template that has\n" +
+			"drifted fails loudly instead of leaving stale values in the copy.",
+		Args: cobra.ExactArgs(1),
+		RunE: runDriveReplace,
+	}
+	c.Flags().StringArray("set", nil, "find=replace (repeatable)")
+	c.Flags().String("json-file", "", "Path to a JSON array of {find, replace}")
+	c.Flags().String("account", "", "Pick a linked Google account")
+	return c
+}
+
+func runDriveReplace(cmd *cobra.Command, args []string) error {
+	id := driveFileID(args[0])
+	sets, _ := cmd.Flags().GetStringArray("set")
+	jsonFile, _ := cmd.Flags().GetString("json-file")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+
+	type repl struct {
+		Find    string `json:"find"`
+		Replace string `json:"replace"`
+	}
+	var items []repl
+
+	if jsonFile != "" {
+		b, err := os.ReadFile(jsonFile)
+		if err != nil {
+			return fmt.Errorf("Couldn't read --json-file %s: %w", jsonFile, err)
+		}
+		if err := json.Unmarshal(b, &items); err != nil {
+			return fmt.Errorf("Couldn't parse %s: %w", jsonFile, err)
+		}
+	}
+	for _, kv := range sets {
+		// SplitN so only the first '=' separates; replacements may contain more.
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 || parts[0] == "" {
+			return fmt.Errorf("--set %q must be find=replace with a non-empty find", kv)
+		}
+		items = append(items, repl{Find: parts[0], Replace: parts[1]})
+	}
+	if len(items) == 0 {
+		return fmt.Errorf("Nothing to replace. Pass --set find=replace or --json-file PATH.")
+	}
+
+	req := map[string]any{"documentId": id, "replacements": items}
+	if account != "" {
+		req["accountSlug"] = account
+	}
+	client := http.New()
+	var resp wire.HubDriveReplaceTextResp
+	if err := client.Hub(cmd.Context(), "drive", "replaceText", req, &resp); err != nil {
+		return err
+	}
+	if wantJSON {
+		out, _ := json.MarshalIndent(resp, "", "  ")
+		fmt.Println(string(out))
+		return nil
+	}
+
+	missed := 0
+	for _, r := range resp.Replacements {
+		if r.OccurrencesChanged == 0 {
+			missed++
+			fmt.Fprintf(os.Stderr, "  ✗ %q matched nothing\n", r.Find)
+			continue
+		}
+		fmt.Printf("  ✓ %q → %d occurrence(s)\n", r.Find, r.OccurrencesChanged)
+	}
+	if missed > 0 {
+		return fmt.Errorf("%d of %d replacements matched nothing — the document still has its original values there", missed, len(resp.Replacements))
+	}
+	return nil
 }
 
 func runDriveCopy(cmd *cobra.Command, args []string) error {
