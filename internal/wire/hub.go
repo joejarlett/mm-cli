@@ -220,7 +220,9 @@ type HubDriveExportReq struct {
 }
 
 type HubDriveExportResp struct {
-	Content  string `json:"content"`
+	Content string `json:"content"`
+	// "utf8" or "base64". Absent from older hubs, which only ever sent text.
+	Encoding string `json:"encoding"`
 	MimeType string `json:"mimeType"`
 }
 
@@ -240,7 +242,9 @@ type HubDriveGetResp struct {
 }
 
 type HubDriveDownloadResp struct {
-	Content string `json:"content"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding"`
+	MimeType string `json:"mimeType"`
 }
 
 // ─── Email — platform outbound log (admin) ─────────────────────────────

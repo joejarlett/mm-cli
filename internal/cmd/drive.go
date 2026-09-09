@@ -31,14 +31,13 @@ func newDriveReadCmd() *cobra.Command {
 		Short: "Read (export) a Google Doc/Sheet/Slide as text",
 		Long: "Export a Google-native file's body to text and print it (or write it with --out).\n" +
 			"Accepts a bare file id or a pasted Docs/Sheets/Slides URL.\n\n" +
-			"Formats: txt (default) and html. md is accepted but the current gateway export\n" +
-			"path returns 503 for text/markdown — use txt for now. Binary formats such as\n" +
-			"pdf are rejected: drive.export returns a JSON string, so they would arrive\n" +
-			"corrupted. Export as html and convert locally.",
+			"Formats: txt (default), html and pdf. md is accepted but the current gateway\n" +
+			"export path returns 503 for text/markdown — use txt for now. pdf comes back\n" +
+			"base64 and must be written with --out rather than printed.",
 		Args: cobra.ExactArgs(1),
 		RunE: runDriveRead,
 	}
-	c.Flags().String("as", "txt", "Export format: txt|html|md (binary formats such as pdf are not supported)")
+	c.Flags().String("as", "txt", "Export format: txt|html|pdf|md (pdf needs --out)")
 	c.Flags().String("out", "", "Write to this path instead of stdout")
 	c.Flags().String("account", "", "Pick a linked Google account")
 	return c
@@ -489,14 +488,6 @@ func runDriveRead(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	// drive.export hands back a JSON string, so anything that isn't text comes
-	// through with its invalid UTF-8 replaced by U+FFFD - a file that looks like
-	// it downloaded but is quietly corrupt. Refuse rather than write that out.
-	if !strings.HasPrefix(mime, "text/") {
-		return fmt.Errorf(
-			"can't export %s: the hub returns text, so binary formats arrive corrupted.\n"+
-				"Use --as html (or --as txt) and convert locally.", mime)
-	}
 	req := map[string]any{"fileId": id, "mimeType": mime}
 	if account != "" {
 		req["accountSlug"] = account
@@ -511,12 +502,19 @@ func runDriveRead(cmd *cobra.Command, args []string) error {
 		fmt.Println(string(out))
 		return nil
 	}
+	body, err := decodeBody(resp.Content, resp.Encoding)
+	if err != nil {
+		return err
+	}
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(resp.Content), 0o644); err != nil {
+		if err := os.WriteFile(outPath, body, 0o644); err != nil {
 			return fmt.Errorf("Couldn't write %s: %w", outPath, err)
 		}
-		fmt.Fprintf(os.Stderr, "✓ Wrote %s (%s)\n", outPath, resp.MimeType)
+		fmt.Fprintf(os.Stderr, "✓ Wrote %s (%s, %d bytes)\n", outPath, resp.MimeType, len(body))
 		return nil
+	}
+	if resp.Encoding == "base64" {
+		return fmt.Errorf("%s is binary — pass --out PATH to write it to a file", resp.MimeType)
 	}
 	fmt.Print(resp.Content)
 	return nil
@@ -581,12 +579,19 @@ func runDriveDownload(cmd *cobra.Command, args []string) error {
 		fmt.Println(string(out))
 		return nil
 	}
+	body, err := decodeBody(resp.Content, resp.Encoding)
+	if err != nil {
+		return err
+	}
 	if outPath != "" {
-		if err := os.WriteFile(outPath, []byte(resp.Content), 0o644); err != nil {
+		if err := os.WriteFile(outPath, body, 0o644); err != nil {
 			return fmt.Errorf("Couldn't write %s: %w", outPath, err)
 		}
-		fmt.Fprintf(os.Stderr, "✓ Wrote %s\n", outPath)
+		fmt.Fprintf(os.Stderr, "✓ Wrote %s (%d bytes)\n", outPath, len(body))
 		return nil
+	}
+	if resp.Encoding == "base64" {
+		return fmt.Errorf("%s is binary — pass --out PATH to write it to a file", resp.MimeType)
 	}
 	fmt.Print(resp.Content)
 	return nil
@@ -698,6 +703,20 @@ func mimeForAs(as string) (string, error) {
 
 // driveFileID accepts a bare id or a pasted Drive/Docs URL and returns the id.
 // e.g. https://docs.google.com/document/d/<id>/edit → <id>
+// decodeBody turns a hub response body into the bytes to write. Binary comes
+// back base64 because a JSON string cannot carry it intact; an older hub sends
+// no encoding at all and only ever sent text.
+func decodeBody(content, encoding string) ([]byte, error) {
+	if encoding == "base64" {
+		b, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, fmt.Errorf("hub returned base64 that wouldn't decode: %w", err)
+		}
+		return b, nil
+	}
+	return []byte(content), nil
+}
+
 func driveFileID(s string) string {
 	s = strings.TrimSpace(s)
 	if !strings.Contains(s, "/") {
