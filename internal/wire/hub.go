@@ -150,10 +150,11 @@ type HubDriveListResp struct {
 }
 
 type HubDriveCreateDocReq struct {
-	Name        string `json:"name"`
-	Content     string `json:"content"`
-	SourceMime  string `json:"sourceMime"` // "text/markdown"|"text/plain"|"text/html"
-	AccountSlug string `json:"accountSlug,omitempty"`
+	Name        string   `json:"name"`
+	Content     string   `json:"content"`
+	SourceMime  string   `json:"sourceMime"` // "text/markdown"|"text/plain"|"text/html"
+	Parents     []string `json:"parents,omitempty"`
+	AccountSlug string   `json:"accountSlug,omitempty"`
 }
 
 type HubDriveCreateDocResp struct {

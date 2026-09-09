@@ -27,12 +27,14 @@ func newDriveReadCmd() *cobra.Command {
 		Short: "Read (export) a Google Doc/Sheet/Slide as text",
 		Long: "Export a Google-native file's body to text and print it (or write it with --out).\n" +
 			"Accepts a bare file id or a pasted Docs/Sheets/Slides URL.\n\n" +
-			"Formats: txt (default), html, pdf (use with --out). md is accepted but the\n" +
-			"current gateway export path returns 503 for text/markdown — use txt for now.",
+			"Formats: txt (default) and html. md is accepted but the current gateway export\n" +
+			"path returns 503 for text/markdown — use txt for now. Binary formats such as\n" +
+			"pdf are rejected: drive.export returns a JSON string, so they would arrive\n" +
+			"corrupted. Export as html and convert locally.",
 		Args: cobra.ExactArgs(1),
 		RunE: runDriveRead,
 	}
-	c.Flags().String("as", "txt", "Export format: txt|html|pdf|md (md needs backend support — see note)")
+	c.Flags().String("as", "txt", "Export format: txt|html|md (binary formats such as pdf are not supported)")
 	c.Flags().String("out", "", "Write to this path instead of stdout")
 	c.Flags().String("account", "", "Pick a linked Google account")
 	return c
@@ -149,6 +151,7 @@ func runDriveDoc(cmd *cobra.Command, args []string) error {
 	file, _ := cmd.Flags().GetString("file")
 	text, _ := cmd.Flags().GetString("text")
 	mime, _ := cmd.Flags().GetString("mime")
+	folder, _ := cmd.Flags().GetString("folder")
 	account, _ := cmd.Flags().GetString("account")
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 
@@ -181,6 +184,11 @@ func runDriveDoc(cmd *cobra.Command, args []string) error {
 		"content":    content,
 		"sourceMime": mime,
 	}
+	// The hub takes `parents`; without this the doc silently lands in My Drive
+	// root while the command still reports success.
+	if folder = strings.TrimSpace(folder); folder != "" {
+		req["parents"] = []string{driveFileID(folder)}
+	}
 	if account != "" {
 		req["accountSlug"] = account
 	}
@@ -211,6 +219,14 @@ func runDriveRead(cmd *cobra.Command, args []string) error {
 	mime, err := mimeForAs(asFlag)
 	if err != nil {
 		return err
+	}
+	// drive.export hands back a JSON string, so anything that isn't text comes
+	// through with its invalid UTF-8 replaced by U+FFFD - a file that looks like
+	// it downloaded but is quietly corrupt. Refuse rather than write that out.
+	if !strings.HasPrefix(mime, "text/") {
+		return fmt.Errorf(
+			"can't export %s: the hub returns text, so binary formats arrive corrupted.\n"+
+				"Use --as html (or --as txt) and convert locally.", mime)
 	}
 	req := map[string]any{"fileId": id, "mimeType": mime}
 	if account != "" {
@@ -421,6 +437,17 @@ func driveFileID(s string) string {
 	// .../d/<id>/... form (Docs, Sheets, Slides, Drive file links)
 	if i := strings.Index(s, "/d/"); i >= 0 {
 		rest := s[i+3:]
+		if j := strings.IndexByte(rest, '/'); j >= 0 {
+			rest = rest[:j]
+		}
+		if j := strings.IndexAny(rest, "?#"); j >= 0 {
+			rest = rest[:j]
+		}
+		return rest
+	}
+	// .../folders/<id> form (a pasted Drive folder link)
+	if i := strings.Index(s, "/folders/"); i >= 0 {
+		rest := s[i+9:]
 		if j := strings.IndexByte(rest, '/'); j >= 0 {
 			rest = rest[:j]
 		}

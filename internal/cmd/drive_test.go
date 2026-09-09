@@ -1,6 +1,9 @@
 package cmd
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMimeForAs(t *testing.T) {
 	cases := []struct {
@@ -57,6 +60,41 @@ func TestDriveFileID(t *testing.T) {
 	for _, c := range cases {
 		if got := driveFileID(c.in); got != c.want {
 			t.Errorf("driveFileID(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestDriveFileIDFolderLinks(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// A pasted folder link, with and without the /u/0 account segment.
+		{"https://drive.google.com/drive/folders/1bXVIbf0c", "1bXVIbf0c"},
+		{"https://drive.google.com/drive/u/0/folders/1bXVIbf0c", "1bXVIbf0c"},
+		{"https://drive.google.com/drive/u/0/folders/1bXVIbf0c?usp=sharing", "1bXVIbf0c"},
+		// A bare id is still passed straight through.
+		{"1bXVIbf0c", "1bXVIbf0c"},
+		// Doc links must keep working.
+		{"https://docs.google.com/document/d/1abc/edit", "1abc"},
+	}
+	for _, c := range cases {
+		if got := driveFileID(c.in); got != c.want {
+			t.Errorf("driveFileID(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestMimeForAsBinaryStillResolves(t *testing.T) {
+	// mimeForAs keeps resolving pdf - runDriveRead is what refuses it, so the
+	// error can explain why rather than looking like an unknown format.
+	if got, err := mimeForAs("pdf"); err != nil || got != "application/pdf" {
+		t.Fatalf("mimeForAs(pdf) = %q, %v", got, err)
+	}
+	for _, as := range []string{"txt", "html"} {
+		got, err := mimeForAs(as)
+		if err != nil {
+			t.Fatalf("mimeForAs(%q) errored: %v", as, err)
+		}
+		if !strings.HasPrefix(got, "text/") {
+			t.Errorf("mimeForAs(%q) = %q, expected a text/* mime", as, got)
 		}
 	}
 }
