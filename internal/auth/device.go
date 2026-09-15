@@ -78,9 +78,19 @@ func NewClient(authURL string) *Client {
 }
 
 // DeviceInit POSTs to /api/cli/device to start a device flow.
-func (c *Client) DeviceInit(ctx context.Context) (*DeviceInitResp, error) {
+//
+// clientName is sent here as well as at Poll, and the difference matters to the
+// person approving. Poll happens *after* they click Authorize, so a name sent
+// only there cannot appear on the consent screen — which is why that page read
+// "The mm CLI wants to access your Meta-Me account" for every client, including
+// a phone. Sent here, the page names whatever is actually asking.
+//
+// The server treats it as optional, so an older mm against a newer auth service
+// and vice versa both keep working; the page just falls back to a generic label.
+func (c *Client) DeviceInit(ctx context.Context, clientName string) (*DeviceInitResp, error) {
 	url := c.AuthURL + "/api/cli/device"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	payload, _ := json.Marshal(map[string]string{"client_name": clientName})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}

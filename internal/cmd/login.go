@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,6 +16,22 @@ import (
 	"mm-cli/internal/auth"
 	"mm-cli/internal/config"
 )
+
+// defaultClientName names the machine, not the tool.
+//
+// The key list is read when deciding which of several rows to revoke, and two
+// machines that both ran `mm login` used to produce two rows both called
+// "mm CLI" — indistinguishable at exactly the moment you need to tell them
+// apart. Same reasoning as the Android client's "Desk · Pixel 8".
+func defaultClientName() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		return "mm CLI"
+	}
+	// Trim the mDNS suffix: "Joes-Mac-mini.local" reads better as "Joes-Mac-mini".
+	host = strings.TrimSuffix(host, ".local")
+	return "mm CLI · " + host
+}
 
 // NewLoginCmd builds `mm login [<name>]`.
 func NewLoginCmd() *cobra.Command {
@@ -48,7 +65,15 @@ func runLogin(ctx context.Context, name string) error {
 	cfg := config.Load()
 	client := auth.NewClient(cfg.AuthURL)
 
-	init, err := client.DeviceInit(ctx)
+	// Resolved before DeviceInit, not after: the consent screen reads this name
+	// when it asks you to approve, and Poll only reports it once you already
+	// have. One string, so the page and the key list cannot disagree.
+	clientName := name
+	if clientName == "" {
+		clientName = defaultClientName()
+	}
+
+	init, err := client.DeviceInit(ctx, clientName)
 	if err != nil {
 		return err
 	}
@@ -58,11 +83,6 @@ func runLogin(ctx context.Context, name string) error {
 	fmt.Println()
 
 	openBrowser(init.VerificationURL())
-
-	clientName := name
-	if clientName == "" {
-		clientName = "mm CLI"
-	}
 
 	pollInterval := time.Duration(init.Interval) * time.Second
 	timeout := time.Duration(init.ExpiresIn+10) * time.Second
