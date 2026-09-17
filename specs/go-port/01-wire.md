@@ -20,6 +20,20 @@ mm-cli speaks **three transports** plus the local-agent REST/WS:
 
 `{HUB}` = `MM_HUB_URL` || `https://meta-me.uk`. `{base}` = `MM_LOCAL_AGENT_URL` || `http://localhost:3142` (or `https://{bare}.{magicDNS-suffix}:31415` with `--node`).
 
+**`--node` only rebuilds the host for nodes we own.** Taking the bare name and
+reattaching the *live* MagicDNS suffix is deliberate - it heals a row left
+stale by a tailnet rename - but it is wrong for a node **shared in from another
+account**, which lives on its owner's tailnet. `Dee's iMac` is registered at
+`dees-imac.tail1d5901.ts.net`, and every `mm desk --node "Dee's iMac"` failed on
+`lookup dees-imac.taildd974e.ts.net: no such host` until 2026-09-17. A shared
+node's hostname is now used exactly as registered.
+
+The discriminator is `HubInstance.IsOwner`, **not** the suffix: a suffix that
+differs from ours is exactly what a stale row for one of our own nodes looks
+like, which is the case the rebuild exists to fix. `nodeBaseURL` in
+[internal/http/agent.go](../../internal/http/agent.go) takes the two apart, and
+is pure so the table test covers both.
+
 ---
 
 ## 1. Authentication (auth.meta-me.uk)

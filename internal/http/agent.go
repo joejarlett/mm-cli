@@ -151,11 +151,43 @@ func (c *Client) ResolveNode(ctx context.Context, name string) (ResolvedNode, er
 	if row.URL == nil || *row.URL == "" {
 		return ResolvedNode{}, fmt.Errorf("Node '%s' has no URL registered.", row.Name)
 	}
-	parsed, err := url.Parse(*row.URL)
+	// The local suffix is what a node on *our* tailnet is rebuilt against, but
+	// a node shared in from another tailnet does not need it at all - so a
+	// tailscaled that will not answer is only fatal for the former.
+	suffix, suffixErr := tailscale.Suffix()
+	base, err := nodeBaseURL(*row.URL, row.IsOwner, suffix, suffixErr)
 	if err != nil {
 		return ResolvedNode{}, err
 	}
-	bare := strings.SplitN(parsed.Hostname(), ".", 2)[0]
+	return ResolvedNode{BaseURL: base, DisplayName: row.Name}, nil
+}
+
+// nodeBaseURL turns a node's hub-registered URL into the base URL to dial.
+//
+// For a node on our own tailnet the host is rebuilt from the bare name plus the
+// *live* MagicDNS suffix, so a tailnet rename heals itself rather than leaving
+// every registered row stale. specs/go-port/01-wire.md §"Local agent REST".
+//
+// That rebuild is wrong for a node **shared in from another account**, which
+// lives on its owner's tailnet: reattaching ours invents a name that does not
+// resolve. `Dee's iMac` is registered at `dees-imac.tail1d5901.ts.net` and
+// every `mm desk --node "Dee's iMac"` died on
+// `lookup dees-imac.taildd974e.ts.net: no such host` until this told them apart.
+//
+// Ownership is the discriminator, not the suffix. A suffix that differs from
+// ours is ambiguous on its own - it is equally what a *stale* row for one of
+// our own nodes looks like after a tailnet rename, and that is the case the
+// rebuild exists to fix. `IsOwner` separates the two; `(shared)` in
+// `mm desk nodes` is the same flag.
+func nodeBaseURL(registered string, isOwner bool, localSuffix string, suffixErr error) (string, error) {
+	parsed, err := url.Parse(registered)
+	if err != nil {
+		return "", err
+	}
+	host := parsed.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("node URL %q has no host", registered)
+	}
 	port := parsed.Port()
 	if port == "" {
 		if parsed.Scheme == "https" {
@@ -164,14 +196,21 @@ func (c *Client) ResolveNode(ctx context.Context, name string) (ResolvedNode, er
 			port = "80"
 		}
 	}
-	suffix, err := tailscale.Suffix()
-	if err != nil {
-		return ResolvedNode{}, err
+	bare, _, hasSuffix := strings.Cut(host, ".")
+	// Someone else's node on someone else's tailnet: theirs to name, and the
+	// one path that never needs a local tailscaled at all.
+	if !isOwner {
+		return fmt.Sprintf("https://%s:%s", host, port), nil
 	}
-	return ResolvedNode{
-		BaseURL:     fmt.Sprintf("https://%s.%s:%s", bare, suffix, port),
-		DisplayName: row.Name,
-	}, nil
+	if suffixErr != nil {
+		// No local suffix to rebuild with. A fully-qualified registration is
+		// still dialable as it stands; a bare one is not recoverable.
+		if hasSuffix {
+			return fmt.Sprintf("https://%s:%s", host, port), nil
+		}
+		return "", suffixErr
+	}
+	return fmt.Sprintf("https://%s.%s:%s", bare, localSuffix, port), nil
 }
 
 // ─── App /api/rpc (legacy) ─────────────────────────────────────────────
