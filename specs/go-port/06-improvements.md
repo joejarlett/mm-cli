@@ -26,11 +26,11 @@
 
 **Severity:** Drive-by attack on localhost. A malicious page in any browser on the host could `new WebSocket('ws://localhost:3142/ws')` and send `{type: 'send', threadId, content}` to drive an LLM turn, including tool calls (bash). Browsers don't apply CORS to WebSocket connections; the agent didn't check `Origin` on upgrade.
 
-**Patch:** [meta-me-local-agent/src/server.ts:1055-1065](../../../meta-me-local-agent/src/server.ts#L1055-L1065). Origin header now checked against `ALLOWED_ORIGINS` (same list HTTP CORS uses). Absent Origin allowed (CLI clients don't send it).
+**Patch:** [desk-agent/src/server.ts:1055-1065](../../../desk-agent/src/server.ts#L1055-L1065). Origin header now checked against `ALLOWED_ORIGINS` (same list HTTP CORS uses). Absent Origin allowed (CLI clients don't send it).
 
 Smoke-tested on m4: ✓ rejects `evil.example.com` with 403, ✓ accepts `chat.meta-me.uk`, ✓ accepts no-Origin.
 
-Pending fedora + Air redeploy — both offline. See [meta-me-local-agent/TODO.md](../../../meta-me-local-agent/TODO.md).
+Pending fedora + Air redeploy — both offline. See [desk-agent/TODO.md](../../../desk-agent/TODO.md).
 
 ---
 

@@ -10,7 +10,7 @@ Status probed live **2026-05-28** (architecture.md's table was 2026-05-20 and ha
 
 - **dispatch / `dispatch()`** — the mm-cli client call that POSTs `{feature, action, payload}` to an app's **`/api/v2`**. The generic transport (today: `client.Rpc` / `client.V2` / `doRpcAndRender`). "Migrate kb to dispatch" = move kb off its bespoke `/api/rpc` onto this.
 - **hub dispatch bridge** — a *proposed, not-yet-built* endpoint on **`meta-me.uk/api/mm`** that validates the CLI bearer and HMAC-forwards to `<app>/api/v2`. The fix for the auth gap (§2/§4.7). Server-side proxy, not a CLI thing.
-- **`mm desk` + local-agent** — *unrelated.* The `meta-me-local-agent` daemon (tailnet, SQLite) behind `desk.meta-me.uk` chat threads. Not a v2 app, not on the dispatch path. Tracked separately (architecture.md §4.5).
+- **`mm desk` + local-agent** — *unrelated.* The `desk-agent` daemon (tailnet, SQLite) behind `desk.meta-me.uk` chat threads. Not a v2 app, not on the dispatch path. Tracked separately (architecture.md §4.5).
 
 ---
 

@@ -6,8 +6,8 @@
 
 ## Cross-machine deploys
 
-- **fedora — local-agent rebuild.** See [meta-me-local-agent/TODO.md](../../../meta-me-local-agent/TODO.md). Carries the WS Origin gate. Offline 1d as of 2026-05-22. Build linux-x64, scp via `.new` rename dance, `systemctl --user restart meta-me-agent`.
-- **MacBook Air (Pippa's, jj-macbookair) — local-agent source rsync.** See [meta-me-local-agent/TODO.md](../../../meta-me-local-agent/TODO.md). Carries the WS Origin gate. Different recipe because it's node + tsx, not a compiled binary.
+- **fedora — local-agent rebuild.** See [desk-agent/TODO.md](../../../desk-agent/TODO.md). Carries the WS Origin gate. Offline 1d as of 2026-05-22. Build linux-x64, scp via `.new` rename dance, `systemctl --user restart meta-me-agent`.
+- **MacBook Air (Pippa's, jj-macbookair) — local-agent source rsync.** See [desk-agent/TODO.md](../../../desk-agent/TODO.md). Carries the WS Origin gate. Different recipe because it's node + tsx, not a compiled binary.
 
 Smoke test after each: curl with bogus + allowlisted + no Origin against `:31415/ws`. Expected: 403 / 101 / 101.
 

@@ -1,7 +1,7 @@
 # Desk Event Log + Overview — a reflective "what's happened" surface
 
 **Status: built (2026-06-06).** Implemented end-to-end and smoke-tested against a live
-model. Backend in **`meta-me-local-agent`** (`src/events/log.ts`, schema + routes +
+model. Backend in **`desk-agent`** (`src/events/log.ts`, schema + routes +
 scheduled sweep in `src/db/schema.ts` / `src/server.ts`, tests in
 `src/events/log.test.ts`); CLI half in this repo (bare `mm desk` + `mm desk refresh` in
 `internal/cmd/desk.go`, wire types in `internal/wire/agent.go`, render tests in
@@ -18,7 +18,7 @@ collapse to 5 at the 7-day default, all 21 visible at `--days 30`.
 Original design follows.
 
 **Direction, not contract (drafted 2026-06-06).** The bulk of the work lives in
-**`meta-me-local-agent`** (the Bun backend that owns `~/.mm/meta-me-local-agent.db`),
+**`desk-agent`** (the Bun backend that owns `~/.mm/meta-me-local-agent.db`),
 not in this repo. The CLI half is a thin passthrough.
 
 **Goal:** give `mm desk` a summary surface — the conversational analogue of
@@ -67,7 +67,7 @@ is observed to miss high-intent moments — do not build it speculatively.
 
 ---
 
-## Data model (`meta-me-local-agent` DB)
+## Data model (`desk-agent` DB)
 
 One append-only table.
 
@@ -134,7 +134,7 @@ for each thread where updated_at > min(event_cursor.last_swept_ts) (or no cursor
 - **Bounded work:** only the tail past each watermark is ever read.
 
 ### Trigger
-- Cron inside `meta-me-local-agent`, ~15 min. (Or, if simpler operationally, a `mm`
+- Cron inside `desk-agent`, ~15 min. (Or, if simpler operationally, a `mm`
   invocation on a host schedule — but in-process cron keeps it self-contained, matching
   how the project index refreshes.)
 - On-demand refresh endpoint (below), surfaced as `mm desk refresh`, mirroring
@@ -142,7 +142,7 @@ for each thread where updated_at > min(event_cursor.last_swept_ts) (or no cursor
 
 ---
 
-## Endpoints (`meta-me-local-agent`)
+## Endpoints (`desk-agent`)
 
 ```
 GET  /api/events/overview?project_id=&days=&limit=
@@ -216,7 +216,7 @@ different lifecycles and should stay separate.
 
 ## Build order
 
-1. **`meta-me-local-agent`**: `event` + `event_cursor` tables; the sweep job +
+1. **`desk-agent`**: `event` + `event_cursor` tables; the sweep job +
    extraction prompt; `GET /api/events/overview`; `POST /api/events/refresh`; cron.
 2. **mm-cli** (this repo): bare-`mm desk` overview passthrough + `mm desk refresh`,
    table-driven tests with a mocked agent client (no live tailnet calls).

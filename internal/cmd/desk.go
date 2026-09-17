@@ -268,7 +268,7 @@ func runChatSearch(cmd *cobra.Command, args []string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 404 {
-		return fmt.Errorf("agent doesn't have /api/messages/search yet — needs the current meta-me-local-agent build")
+		return fmt.Errorf("agent doesn't have /api/messages/search yet — needs the current desk-agent build")
 	}
 	if resp.StatusCode/100 != 2 {
 		return fmt.Errorf("GET /api/messages/search %d", resp.StatusCode)

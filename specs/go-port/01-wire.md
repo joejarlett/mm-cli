@@ -237,7 +237,7 @@ The Go port should keep these as `pgx` queries. Connection pooling: `max: 2, idl
 
 Default base: `http://localhost:3142`. With `--node <name>`: tailnet URL.
 
-Wire types: [src/wire/agent.ts](../../src/wire/agent.ts). Reference source: `~/Documents/dev/meta-me-local-agent`.
+Wire types: [src/wire/agent.ts](../../src/wire/agent.ts). Reference source: `~/Documents/dev/desk-agent`.
 
 ### 7.1 Threads + messages
 
@@ -259,7 +259,7 @@ Wire types: [src/wire/agent.ts](../../src/wire/agent.ts). Reference source: `~/D
 |---|---|---|---|
 | `GET /api/projects` | — | `AgentProjectsListResp` | `mm chat projects`, `mm project list` |
 | `POST /api/projects` | `{ root_path, label? }` | `AgentProject` | `mm project add` |
-| `GET /api/projects/:id/overview?path=` | — | overview shape (see [src/index/](../../../meta-me-local-agent/src/index/)) | `mm project overview` |
+| `GET /api/projects/:id/overview?path=` | — | overview shape (see [src/index/](../../../desk-agent/src/index/)) | `mm project overview` |
 | `GET /api/projects/:id/index?path=&deep=&search=&limit=&refresh=` | — | file-tier index shape | `mm project detail` |
 | `POST /api/projects/:id/index/refresh` | `{ path? }` | `{ ok: true, refreshed: N }` | `mm project rebuild` |
 

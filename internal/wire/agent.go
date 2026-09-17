@@ -1,7 +1,7 @@
 package wire
 
 // Local-agent REST + WS wire types. Mirrors src/wire/agent.ts.
-// Reference source: ~/Documents/dev/meta-me-local-agent.
+// Reference source: ~/Documents/dev/desk-agent.
 
 // ─── Threads + messages ────────────────────────────────────────────────
 

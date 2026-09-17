@@ -25,9 +25,9 @@ Default `GOAMD64=v1` works on any x86_64 since 2003. Means Pippa's 2008 Core 2 D
 
 ### macOS code signing
 
-Reuse the existing `MetaMe Local Agent` self-signed cert from `meta-me-local-agent/scripts/`. The `dist/mm-darwin-*` binaries get re-signed with identifier `uk.meta-me.cli` so they have a stable signature across rebuilds (relevant if/when `mm` gets called from non-Terminal contexts like a hotkey wrapper).
+Reuse the existing `MetaMe Local Agent` self-signed cert from `desk-agent/scripts/`. The `dist/mm-darwin-*` binaries get re-signed with identifier `uk.meta-me.cli` so they have a stable signature across rebuilds (relevant if/when `mm` gets called from non-Terminal contexts like a hotkey wrapper).
 
-Pattern: lift `meta-me-local-agent/scripts/sign-darwin.sh` into `mm-cli/scripts/sign-darwin.sh`, set `MM_SIGN_IDENTIFIER=uk.meta-me.cli` (same `MetaMe Local Agent` identity).
+Pattern: lift `desk-agent/scripts/sign-darwin.sh` into `mm-cli/scripts/sign-darwin.sh`, set `MM_SIGN_IDENTIFIER=uk.meta-me.cli` (same `MetaMe Local Agent` identity).
 
 Linux: nothing to sign.
 

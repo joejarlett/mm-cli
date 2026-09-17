@@ -39,7 +39,7 @@ Not everything `mm` exposes is a v2-contract app:
 
 - `mm calendar`, `mm tasks`, `mm drive`, `mm email` (send) — go through the hub (`meta-me.uk/api/mm`) which proxies to the `gws-gateway` container for Google Workspace.
 - `mm email` (admin list) — platform mail log on the hub.
-- `mm chat` — reads/writes against the **local** `meta-me-local-agent` daemon (tailnet, SQLite). Not a v2 contract; its own REST + WS surface.
+- `mm chat` — reads/writes against the **local** `desk-agent` daemon (tailnet, SQLite). Not a v2 contract; its own REST + WS surface.
 - `mm hub` (sql/apps/health/errors) — direct admin DB access on the hub.
 - `mm stt`, `mm tts` — audio in/out via the hub.
 
