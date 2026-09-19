@@ -145,6 +145,18 @@ func streamWSWithReconnect(ctx context.Context, client *mmhttp.Client, wsURL str
 	maxAttempts := 5
 	attempt := 0
 
+	// **A bound across the whole stream, not per episode.**
+	//
+	// `attempt` is reset to 1 inside every reconnect cycle and
+	// `reconnectSuccess` sends the loop back to Read, so nothing counted how
+	// many times the cycle itself had run. A turn that ends with the agent
+	// closing the socket cleanly therefore reconnected, resumed, read EOF and
+	// reconnected again - once a second, for ever. Joe hit it on 2026-09-19
+	// and the agent log is the tell: the same
+	// `[resume] cursor=88 replayed=4 done=true` line repeating at 1 Hz.
+	reconnects := 0
+	const maxReconnects = 5
+
 	// Initial Dial
 	for {
 		conn, _, err = websocket.Dial(ctx, wsURL, nil)
@@ -179,8 +191,26 @@ func streamWSWithReconnect(ctx context.Context, client *mmhttp.Client, wsURL str
 				return ctx.Err()
 			}
 
+			// **A clean close is not a dropped connection.**
+			//
+			// This check used to sit *below* the reconnect branch, which made
+			// it unreachable the moment a cursor existed - and a cursor exists
+			// after the first frame of every turn. So the one case the branch
+			// below must not handle was the only case it always got.
+			//
+			// Same family as desk-native's "don't implement onClosed without
+			// onClosing": a socket that finished and a socket that failed are
+			// different events, and code that cannot tell them apart picks the
+			// wrong one every time.
+			if isCleanClose(err) && streamedAnything {
+				clearStatus()
+				fmt.Println()
+				return nil
+			}
+
 			// Resilient Reconnect
-			if lastCursor != nil {
+			if lastCursor != nil && reconnects < maxReconnects {
+				reconnects++
 				clearStatus()
 				fmt.Fprintln(os.Stderr, "\n⚠️ Connection lost. Reconnecting...")
 				conn.CloseNow()
@@ -244,7 +274,17 @@ func streamWSWithReconnect(ctx context.Context, client *mmhttp.Client, wsURL str
 			return fmt.Errorf("stream session expired on the agent; unable to resume from cursor")
 		}
 
-		if cVal, exists := evt["cursor"]; exists {
+		// **The de-dup must not swallow a terminal frame.**
+		//
+		// A resume replays the agent's buffer from the cursor, and a replayed
+		// `done` carries a cursor the client has already seen - so the guard
+		// below drops the one frame that ends the loop, and the stream can
+		// only ever be terminated by an error. `resume_empty` was already
+		// exempted above for exactly this reason; `done` and `error` were not,
+		// and they are the two that matter more.
+		terminal := etype == "done" || etype == "error"
+
+		if cVal, exists := evt["cursor"]; exists && !terminal {
 			if num, ok := cVal.(float64); ok {
 				cInt := int64(num)
 				if lastCursor != nil && cInt <= *lastCursor {
