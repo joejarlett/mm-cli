@@ -4,8 +4,8 @@
     "tagline": "One CLI for a personal software platform — knowledge base, CRM, Google Workspace, voice, agents, and platform admin."
   },
   "export": {
-    "exclude": [],
-    "rename": {},
+    "exclude": ["CLAUDE.md"],
+    "rename": { "AGENTS.public.md": "AGENTS.md" },
     "substitute": [
       { "find": "joe\\.jarlett@(gmail\\.com|grounded\\.ninja)", "replace": "you@example.com" },
 
