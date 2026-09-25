@@ -33,8 +33,8 @@ func newChatSendCmd() *cobra.Command {
 			"Because the default appends to whatever thread was touched last, every\n" +
 			"send echoes its target to stderr (e.g. `→ continuing 2e8065 \"…\"`). For a\n" +
 			"one-off task that shouldn't land in an unrelated thread, pass --new.",
-		Args:  cobra.MinimumNArgs(1),
-		RunE:  runChatSend,
+		Args: cobra.MinimumNArgs(1),
+		RunE: runChatSend,
 	}
 	c.Flags().String("node", "", "Target a remote agent by name")
 	c.Flags().Bool("new", false, "Create a new thread")
@@ -157,7 +157,6 @@ func streamWSWithReconnect(ctx context.Context, client *mmhttp.Client, wsURL str
 	reconnects := 0
 	const maxReconnects = 5
 
-	// Initial Dial
 	for {
 		conn, _, err = websocket.Dial(ctx, wsURL, nil)
 		if err != nil {

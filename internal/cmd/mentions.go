@@ -321,9 +321,8 @@ func PreprocessArgs(ctx context.Context, args []string) ([]string, error) {
 		}
 	}
 
-	// Print warnings to stderr
 	for _, w := range warnings {
-		fmt.Fprintln(os.Stderr, w) // or log it
+		fmt.Fprintln(os.Stderr, w)
 	}
 
 	// Build the new args array

@@ -1691,7 +1691,7 @@ func newKbResearchCmd() *cobra.Command {
 			"  web       = Gemini deep-research (general web synthesis).\n" +
 			"  both      = run both and combine.\n" +
 			"Runs auto-execute; pass execute=false to stage a draft for review.",
-		Args:  cobra.ArbitraryArgs,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			if len(args) >= 1 && args[0] == "list" {

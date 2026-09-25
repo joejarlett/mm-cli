@@ -71,7 +71,6 @@ func runFeedbackSubmit(cmd *cobra.Command, args []string) error {
 	contextFlag, _ := cmd.Flags().GetString("context")
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 
-	// Validate kind
 	kindLower := strings.ToLower(kind)
 	if kindLower != "bug" && kindLower != "friction" && kindLower != "idea" {
 		return fmt.Errorf("invalid classification kind: %q (must be one of: bug, friction, idea)", kind)

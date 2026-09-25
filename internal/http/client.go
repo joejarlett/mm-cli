@@ -3,16 +3,16 @@
 //
 // Three transport methods + the local-agent helpers:
 //
-//   Hub(ctx, feature, action, payload, out) — POST {HubURL}/api/mm.
-//     Unwraps `data` into `out`, throws on `errors`.
+//	Hub(ctx, feature, action, payload, out) — POST {HubURL}/api/mm.
+//	  Unwraps `data` into `out`, throws on `errors`.
 //
-//   V2(ctx, app, "feature.action", payload) — POST {app.url}/api/v2.
-//     Returns the raw envelope; per-app shapes vary so callers parse.
+//	V2(ctx, app, "feature.action", payload) — POST {app.url}/api/v2.
+//	  Returns the raw envelope; per-app shapes vary so callers parse.
 //
-//   Rpc(ctx, app, feature, action, payload, out) — POST {app.url}/api/rpc.
-//     Legacy kb+crm path. Returns parsed JSON into `out`.
+//	Rpc(ctx, app, feature, action, payload, out) — POST {app.url}/api/rpc.
+//	  Legacy kb+crm path. Returns parsed JSON into `out`.
 //
-//   AgentFetch / AgentBase — local-agent REST + WS base resolution.
+//	AgentFetch / AgentBase — local-agent REST + WS base resolution.
 package http
 
 import (

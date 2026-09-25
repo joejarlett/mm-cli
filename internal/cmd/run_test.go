@@ -256,8 +256,8 @@ func TestRunDispatch(t *testing.T) {
 			errContains: "not authenticated",
 		},
 		{
-			name: "Dry run output",
-			args: []string{"write docs", "--dry-run"},
+			name:      "Dry run output",
+			args:      []string{"write docs", "--dry-run"},
 			expectOut: `HERMES_INFERENCE_MODEL=zai/glm-5.3-flash hermes --worktree --yolo --accept-hooks --pass-session-id -s meta-me chat -q "write docs" --model glm-5.3-flash --provider zai`,
 		},
 		{

@@ -29,7 +29,7 @@ func NewCrmCmd() *cobra.Command {
 		if len(args) < 2 {
 			return cmd.Help()
 		}
-		return crmDispatch(cmd,args[0], args[1], parseKV(args[2:]))
+		return crmDispatch(cmd, args[0], args[1], parseKV(args[2:]))
 	}
 	return c
 }
@@ -81,7 +81,7 @@ func newCrmContactsCmd() *cobra.Command {
 				if len(terms) == 0 {
 					return fmt.Errorf("usage: mm crm contacts find <query> [--all]")
 				}
-				return crmDispatch(cmd,"contact", "search", map[string]any{
+				return crmDispatch(cmd, "contact", "search", map[string]any{
 					"query":            strings.Join(terms, " "),
 					"includeProspects": includeProspects,
 				})
@@ -154,37 +154,37 @@ func renderCrmTree(cmd *cobra.Command) error {
 func newCrmProjectsCmd() *cobra.Command {
 	return &cobra.Command{Use: "projects", Short: "List CRM projects", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd,"project", "list", nil)
+			return crmDispatch(cmd, "project", "list", nil)
 		}}
 }
 func newCrmLogCmd() *cobra.Command {
 	return &cobra.Command{Use: "log [text]", Short: "Log an interaction", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd,"interaction", "log", map[string]any{"text": strings.Join(args, " ")})
+			return crmDispatch(cmd, "interaction", "log", map[string]any{"text": strings.Join(args, " ")})
 		}}
 }
 func newCrmContextCmd() *cobra.Command {
 	return &cobra.Command{Use: "context [person]", Short: "Person context", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd,"contact", "context", map[string]any{"person": args[0]})
+			return crmDispatch(cmd, "contact", "context", map[string]any{"person": args[0]})
 		}}
 }
 func newCrmPeekCmd() *cobra.Command {
 	return &cobra.Command{Use: "peek [id]", Short: "Preview anything", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd,"peek", "show", map[string]any{"target": args[0]})
+			return crmDispatch(cmd, "peek", "show", map[string]any{"target": args[0]})
 		}}
 }
 func newCrmReadCmd() *cobra.Command {
 	return &cobra.Command{Use: "read [id]", Short: "Full content", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd,"read", "show", map[string]any{"target": args[0]})
+			return crmDispatch(cmd, "read", "show", map[string]any{"target": args[0]})
 		}}
 }
 func newCrmFindCmd() *cobra.Command {
 	return &cobra.Command{Use: "find [query]", Short: "Search the CRM", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd,"find", "search", map[string]any{"query": strings.Join(args, " ")})
+			return crmDispatch(cmd, "find", "search", map[string]any{"query": strings.Join(args, " ")})
 		}}
 }
 

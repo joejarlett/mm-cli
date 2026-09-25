@@ -4,8 +4,9 @@
 // common natural-language phrases. Anything else is an error.
 //
 // Two entry points mirror the TS:
-//   ParseDateTime(raw, now) — for --when. Returns wall-clock in local TZ.
-//   ParseDate(raw, now)     — for --due. Date only (midnight local).
+//
+//	ParseDateTime(raw, now) — for --when. Returns wall-clock in local TZ.
+//	ParseDate(raw, now)     — for --due. Date only (midnight local).
 //
 // `now` is injectable for testing; production callers pass time.Now().
 package nldate

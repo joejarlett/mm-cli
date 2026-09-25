@@ -100,18 +100,18 @@ func TestScanMessageMentions(t *testing.T) {
 			expectedProj: "",
 		},
 		{
-			name:         "Overriding warnings",
-			message:      "@ubuntu hello",
-			existingNode: "fedora",
-			expectedBody: "hello",
-			expectedNode: "fedora", // flag overrides mention
+			name:          "Overriding warnings",
+			message:       "@ubuntu hello",
+			existingNode:  "fedora",
+			expectedBody:  "hello",
+			expectedNode:  "fedora", // flag overrides mention
 			expectedWarns: []string{"warning: --node 'fedora' overrides @ubuntu"},
 		},
 		{
-			name:            "Ambiguous mention error",
-			message:         "@ambiguous test",
-			existingNode:    "ambiguous",
-			expectErr:       true,
+			name:         "Ambiguous mention error",
+			message:      "@ambiguous test",
+			existingNode: "ambiguous",
+			expectErr:    true,
 		},
 	}
 

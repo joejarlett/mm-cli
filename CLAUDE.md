@@ -37,7 +37,7 @@ internal/
 ├── cmd/              Command line handlers (Cobra)
 │   ├── admin/        Hub admin commands (sql, apps, health, errors)
 │   ├── app.go        Universal/dynamic tool dispatcher
-│   ├── chat.go       Local-agent thread command
+│   ├── desk.go       Local-agent thread commands (mm desk)
 │   ├── chat_send.go  Local-agent chat sending & WebSocket resilient client (cursor reconnect)
 │   ├── feedback.go   Built-in feedback submission subcommand
 │   ├── mentions.go   @<entity> mentions resolution & positional arg preprocessor

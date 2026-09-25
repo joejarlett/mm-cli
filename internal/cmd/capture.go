@@ -245,8 +245,8 @@ const autoFireConfidence = 0.95
 // can skip the round-trip to the safety-blocked path. Calendar with
 // attendees is flagged separately at dispatch time on the hub.
 var hardSafetyTargets = map[string]struct{}{
-	"email.send":           {},
-	"crm.interaction.log":  {},
+	"email.send":          {},
+	"crm.interaction.log": {},
 }
 
 func runCaptureSubmit(cmd *cobra.Command, args []string) error {

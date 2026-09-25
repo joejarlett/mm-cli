@@ -59,7 +59,7 @@ func TestParseDate(t *testing.T) {
 		{"tomorrow", "2026-05-23"},
 		{"next friday", "2026-05-29"},
 		{"in 3 days", "2026-05-25"},
-		{"next week", "2026-06-01"}, // Monday of next week
+		{"next week", "2026-06-01"},   // Monday of next week
 		{"end of week", "2026-05-22"}, // anchor IS Friday → today
 		{"end of month", "2026-05-31"},
 	}

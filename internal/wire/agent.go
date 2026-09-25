@@ -108,11 +108,11 @@ type AgentModelsListResp struct {
 // ─── Health ────────────────────────────────────────────────────────────
 
 type AgentHealthResp struct {
-	OK         bool   `json:"ok"`
-	TS         int64  `json:"ts"`
-	Version    string `json:"version"`
-	Uptime     int    `json:"uptime"`
-	Sockets    int    `json:"sockets"`
-	Sessions   int    `json:"sessions"`
-	InstallID  *string `json:"installId"`
+	OK        bool    `json:"ok"`
+	TS        int64   `json:"ts"`
+	Version   string  `json:"version"`
+	Uptime    int     `json:"uptime"`
+	Sockets   int     `json:"sockets"`
+	Sessions  int     `json:"sessions"`
+	InstallID *string `json:"installId"`
 }
