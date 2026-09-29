@@ -588,6 +588,19 @@ type HubMessagesListResp struct {
 	Messages []HubConversationMessage `json:"messages"`
 }
 
+// HubConversationsPage and HubMessagesPage are the hub's conversations.list and
+// conversations.messages actions (POST /api/actions): a page of items and the
+// cursor for the next, as every app's conversation actions answer.
+type HubConversationsPage struct {
+	Items []HubConversation `json:"items"`
+	Next  *string           `json:"next"`
+}
+
+type HubMessagesPage struct {
+	Items []HubConversationMessage `json:"items"`
+	Next  *string                  `json:"next"`
+}
+
 // ─── Envelope ──────────────────────────────────────────────────────────
 
 // HubEnvelope is the top-level response shape for /api/mm and /api/v2.

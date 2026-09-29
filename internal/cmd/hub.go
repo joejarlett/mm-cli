@@ -69,29 +69,20 @@ func runHubList(cmd *cobra.Command, _ []string) error {
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 	client := mmhttp.New()
 
-	resp, err := client.HubFetch(cmd.Context(), http.MethodGet,
-		fmt.Sprintf("/api/conversations?limit=%d", limit), nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("GET /api/conversations %d", resp.StatusCode)
-	}
-	var data wire.HubConversationsListResp
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	var data wire.HubConversationsPage
+	if err := hubConversations(cmd.Context(), client, "list", map[string]any{"limit": limit}, &data); err != nil {
 		return err
 	}
 	if wantJSON {
-		out, _ := json.MarshalIndent(data.Conversations, "", "  ")
+		out, _ := json.MarshalIndent(data.Items, "", "  ")
 		fmt.Println(string(out))
 		return nil
 	}
-	if len(data.Conversations) == 0 {
+	if len(data.Items) == 0 {
 		fmt.Println("(no conversations)")
 		return nil
 	}
-	for _, c := range data.Conversations {
+	for _, c := range data.Items {
 		id6 := c.ID
 		if len(id6) > 6 {
 			id6 = id6[:6]
@@ -116,25 +107,16 @@ func runHubShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	resp, err := client.HubFetch(cmd.Context(), http.MethodGet,
-		"/api/conversations/"+id+"/messages", nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("GET /api/conversations/%s/messages %d", id, resp.StatusCode)
-	}
-	var data wire.HubMessagesListResp
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	var data wire.HubMessagesPage
+	if err := hubConversations(cmd.Context(), client, "messages", map[string]any{"id": id, "limit": 500}, &data); err != nil {
 		return err
 	}
 	if wantJSON {
-		out, _ := json.MarshalIndent(data.Messages, "", "  ")
+		out, _ := json.MarshalIndent(data.Items, "", "  ")
 		fmt.Println(string(out))
 		return nil
 	}
-	for _, m := range data.Messages {
+	for _, m := range data.Items {
 		fmt.Printf("── %s ──\n", m.Role)
 		fmt.Println(m.Content)
 		fmt.Println()
@@ -253,20 +235,12 @@ func resolveHubConversationID(ctx context.Context, client *mmhttp.Client, prefix
 	if len(prefix) < 4 {
 		return "", fmt.Errorf("conversation prefix '%s' is too short (need ≥4 chars)", prefix)
 	}
-	resp, err := client.HubFetch(ctx, http.MethodGet, "/api/conversations?limit=200", nil)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("GET /api/conversations %d", resp.StatusCode)
-	}
-	var data wire.HubConversationsListResp
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+	var data wire.HubConversationsPage
+	if err := hubConversations(ctx, client, "list", map[string]any{"limit": 200}, &data); err != nil {
 		return "", err
 	}
 	var matches []string
-	for _, c := range data.Conversations {
+	for _, c := range data.Items {
 		if strings.HasPrefix(c.ID, strings.ToLower(prefix)) {
 			matches = append(matches, c.ID)
 		}
@@ -285,38 +259,45 @@ func resolveHubSendConversationID(ctx context.Context, client *mmhttp.Client, is
 		return resolveHubConversationID(ctx, client, threadFlag)
 	}
 	if isNew {
-		body, _ := json.Marshal(map[string]any{})
-		resp, err := client.HubFetch(ctx, http.MethodPost, "/api/conversations", body)
-		if err != nil {
-			return "", err
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode/100 != 2 {
-			b, _ := io.ReadAll(resp.Body)
-			return "", fmt.Errorf("POST /api/conversations %d: %s", resp.StatusCode, truncString(string(b), 200))
-		}
 		var conv wire.HubConversation
-		if err := json.NewDecoder(resp.Body).Decode(&conv); err != nil {
+		if err := hubConversations(ctx, client, "create", map[string]any{}, &conv); err != nil {
 			return "", err
 		}
 		return conv.ID, nil
 	}
-	resp, err := client.HubFetch(ctx, http.MethodGet, "/api/conversations?limit=1", nil)
-	if err != nil {
+	var data wire.HubConversationsPage
+	if err := hubConversations(ctx, client, "list", map[string]any{"limit": 1}, &data); err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("GET /api/conversations %d", resp.StatusCode)
-	}
-	var data wire.HubConversationsListResp
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return "", err
-	}
-	if len(data.Conversations) == 0 {
+	if len(data.Items) == 0 {
 		return "", fmt.Errorf("no existing conversation — pass --new to create one")
 	}
-	return data.Conversations[0].ID, nil
+	return data.Items[0].ID, nil
+}
+
+// hubConversations calls one of the hub chat's conversations.* actions on the
+// hub's own action endpoint (/api/actions, api-standard Wave 6). Until v0.2.11
+// these were the /api/conversations routes, which the hub no longer has.
+func hubConversations(ctx context.Context, client *mmhttp.Client, action string, payload map[string]any, out any) error {
+	body, _ := json.Marshal(map[string]any{"feature": "conversations", "action": action, "payload": payload})
+	resp, err := client.HubFetch(ctx, http.MethodPost, "/api/actions", body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		var e struct {
+			Errors []struct {
+				Message string `json:"message"`
+			} `json:"errors"`
+		}
+		if json.Unmarshal(raw, &e) == nil && len(e.Errors) > 0 && e.Errors[0].Message != "" {
+			return fmt.Errorf("conversations.%s: %s", action, e.Errors[0].Message)
+		}
+		return fmt.Errorf("conversations.%s: HTTP %d: %s", action, resp.StatusCode, truncString(string(raw), 200))
+	}
+	return json.Unmarshal(raw, out)
 }
 
 func relTimeISO(ts string) string {
