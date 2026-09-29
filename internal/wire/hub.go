@@ -598,6 +598,8 @@ type HubEnvelope[T any] struct {
 }
 
 type HubErrItem struct {
+	// ID is set on server faults the hub reported; quoting it finds the report.
+	ID     string `json:"id,omitempty"`
 	Code   string `json:"code,omitempty"`
 	Title  string `json:"title,omitempty"`
 	Detail string `json:"detail,omitempty"`

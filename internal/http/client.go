@@ -113,6 +113,9 @@ func (c *Client) Hub(ctx context.Context, feature, action string, payload any, o
 			if msg == "" {
 				msg = e.Title
 			}
+			if e.ID != "" && !strings.Contains(msg, e.ID) {
+				msg = fmt.Sprintf("%s (ref %s)", msg, e.ID)
+			}
 		}
 		if msg == "" {
 			msg = fmt.Sprintf("%s.%s failed (HTTP %d)", feature, action, resp.StatusCode)
