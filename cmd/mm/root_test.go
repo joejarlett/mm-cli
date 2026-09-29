@@ -24,13 +24,15 @@ import (
 // app command, and then failed outright once src/index.ts was deleted.
 var wantRootCommands = map[string][]string{
 	// Apps — bespoke wrappers, then the registry-driven universal ones.
-	"kb":        nil,
-	"crm":       nil,
-	"analytics": nil,
-	"finances":  nil,
-	"gn":        nil,
-	"keel":      nil,
-	"konte":     nil,
+	"kb":             nil,
+	"crm":            nil,
+	"analytics":      nil,
+	"finances":       nil,
+	"gn":             nil,
+	"gn-native":      nil,
+	"keel":           nil,
+	"konte":          nil,
+	"sandbox-native": nil,
 
 	// Google Workspace.
 	"email":    nil,

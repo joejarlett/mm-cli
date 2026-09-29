@@ -20,13 +20,15 @@ type Entry struct {
 // owns a question. Style: "<Name> — <nouns the app is about>", em-dash,
 // lowercase after it, no trailing period.
 var Registry = map[string]Entry{
-	"kb":        {Slug: "kb", URL: "https://kb.meta-me.uk", Description: "Knowledge Base — research corpora, notebooks, documents, deep research"},
-	"crm":       {Slug: "crm", URL: "https://crm.meta-me.uk", Description: "CRM — contacts, interactions, follow-ups (multi-instance)"},
-	"finances":  {Slug: "finances", URL: "https://finances.meta-me.uk", Description: "Finances — accounts, transactions, net worth (multi-instance)"},
-	"gn":        {Slug: "gn", URL: "https://grounded.ninja", Description: "GroundedNinja — wellbeing journal, practices, reflection"},
-	"keel":      {Slug: "keel", URL: "https://keel.meta-me.uk", Description: "Keel — personal health: weight & trends, pantry, exercise, blood-test docs (multi-instance)"},
-	"analytics": {Slug: "analytics", URL: "https://analytics.meta-me.uk", Description: "Analytics — pageviews and traffic across your apps"},
-	"konte":     {Slug: "konte", URL: "https://konte.meta-me.uk", Description: "Konte — agent-driven YouTube production: ideas, research, scripts, storyboards, exports (multi-instance)"},
+	"kb":             {Slug: "kb", URL: "https://kb.meta-me.uk", Description: "Knowledge Base — research corpora, notebooks, documents, deep research"},
+	"crm":            {Slug: "crm", URL: "https://crm.meta-me.uk", Description: "CRM — contacts, interactions, follow-ups (multi-instance)"},
+	"finances":       {Slug: "finances", URL: "https://finances.meta-me.uk", Description: "Finances — accounts, transactions, net worth (multi-instance)"},
+	"gn":             {Slug: "gn", URL: "https://grounded.ninja", Description: "GroundedNinja — wellbeing journal, practices, reflection"},
+	"keel":           {Slug: "keel", URL: "https://keel.meta-me.uk", Description: "Keel — personal health: weight & trends, pantry, exercise, blood-test docs (multi-instance)"},
+	"analytics":      {Slug: "analytics", URL: "https://analytics.meta-me.uk", Description: "Analytics — pageviews and traffic across your apps"},
+	"konte":          {Slug: "konte", URL: "https://konte.meta-me.uk", Description: "Konte — agent-driven YouTube production: ideas, research, scripts, storyboards, exports (multi-instance)"},
+	"gn-native":      {Slug: "gn-native", URL: "https://gn-native.meta-me.uk", Description: "GroundedNinja (native) — journal, practices, Future Self, sages, conversations"},
+	"sandbox-native": {Slug: "sandbox-native", URL: "https://sandbox-native.meta-me.uk", Description: "Sandbox Native — the native-app template: notes, labels, exercises, conversations"},
 }
 
 // Resolve looks up an app slug; returns an error listing known slugs on miss.
