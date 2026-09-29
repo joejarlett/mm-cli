@@ -11,7 +11,7 @@ A single-binary **Go** CLI for the Meta-Me platform. Authenticates via a single 
 
 ## What `mm` is and isn't
 
-**Is:** a thin dispatcher. The platform contract is the same shape on every app — `POST /api/v2 {feature, action, payload}` — and `mm` does discovery, validation, and dispatch over that. Per-app logic belongs in the apps, surfaced through their Agent Cards and manifests.
+**Is:** a thin dispatcher. The platform contract is the same shape on every app — `POST {feature, action, payload}` to the app's action endpoint — and `mm` does discovery, validation, and dispatch over that. The endpoint comes from the app's agent card (`endpoint`, `/api/actions` on the API standard), falling back to `/api/v2` for apps that haven't moved (`card.ActionsPath`; meta-me.uk `specs/api-standard.md`). Legacy `/api/rpc` (kb, crm wrappers) is untouched until those apps move. Per-app logic belongs in the apps, surfaced through their Agent Cards and manifests.
 
 **Isn't:** the per-repo CLIs (`cli/kb.ts` etc.). Those are dev tools inside each repo. `mm` is the user/agent-facing multi-app surface.
 

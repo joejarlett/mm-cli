@@ -33,15 +33,18 @@ type Alias struct {
 }
 
 type Card struct {
-	Name         string           `json:"name"`
-	Description  string           `json:"description,omitempty"`
-	Version      string           `json:"version,omitempty"`
-	Capabilities []string         `json:"capabilities,omitempty"`
-	ChatURL      string           `json:"chatUrl,omitempty"`
-	MCPURL       *string          `json:"mcpUrl,omitempty"`
-	Tools        []Tool           `json:"tools,omitempty"`
-	Aliases      map[string]Alias `json:"aliases,omitempty"`
-	Auth         []string         `json:"auth,omitempty"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description,omitempty"`
+	Version      string   `json:"version,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	// Endpoint is where the app's actions are served ("/api/actions" on the
+	// API standard). Empty for an app that hasn't moved: see ActionsPath.
+	Endpoint string           `json:"endpoint,omitempty"`
+	ChatURL  string           `json:"chatUrl,omitempty"`
+	MCPURL   *string          `json:"mcpUrl,omitempty"`
+	Tools    []Tool           `json:"tools,omitempty"`
+	Aliases  map[string]Alias `json:"aliases,omitempty"`
+	Auth     []string         `json:"auth,omitempty"`
 }
 
 func cacheDir() (string, error) {
@@ -111,6 +114,31 @@ func Fetch(ctx context.Context, slug string) (*Card, error) {
 		return nil, fmt.Errorf("card from %s is malformed: missing 'name'", url)
 	}
 	return &c, nil
+}
+
+// LegacyEndpoint is where an app that hasn't declared an endpoint is reached.
+const LegacyEndpoint = "/api/v2"
+
+// ActionsPath is the path of the app's action dispatcher: the card's
+// endpoint, else /api/v2 (meta-me.uk specs/api-standard.md, rule 2). Nil-safe.
+func (c *Card) ActionsPath() string {
+	if c == nil || c.Endpoint == "" {
+		return LegacyEndpoint
+	}
+	return c.Endpoint
+}
+
+// ActionsPath resolves the dispatcher path for an app from its (cached) card.
+// The card is read, not the manifest, because the manifest is served at
+// <endpoint>/manifest. No card (unreachable, malformed, an app without one)
+// means /api/v2, which moved apps keep as an alias until they drop it, so a
+// stale cached card still lands.
+func ActionsPath(ctx context.Context, slug string) string {
+	c, err := Load(ctx, slug, false)
+	if err != nil {
+		return LegacyEndpoint
+	}
+	return c.ActionsPath()
 }
 
 // HasCapability reports whether the card claims a given capability.

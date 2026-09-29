@@ -1,4 +1,6 @@
-// Package manifest fetches + caches `<app>/api/v2/manifest`.
+// Package manifest fetches + caches `<app><endpoint>/manifest`, where the
+// endpoint comes from the app's card (/api/actions on the API standard,
+// /api/v2 before it).
 // Mirrors src/manifest.ts: ~/.mm-cli/manifests/<slug>.json, 24h TTL.
 package manifest
 
@@ -14,6 +16,7 @@ import (
 	"time"
 
 	"mm-cli/internal/apps"
+	"mm-cli/internal/card"
 )
 
 const cacheTTL = 24 * time.Hour
@@ -29,6 +32,7 @@ type Action struct {
 type Manifest struct {
 	AppSlug  string                       `json:"appSlug"`
 	Version  string                       `json:"version"`
+	Endpoint string                       `json:"endpoint,omitempty"`
 	Features map[string]map[string]Action `json:"features"`
 }
 
@@ -50,7 +54,7 @@ func cachePath(slug string) (string, error) {
 }
 
 // Load returns the manifest for `slug`, from cache if fresh (24h) or by
-// fetching `<app>/api/v2/manifest`. Pass `refresh=true` to bypass cache.
+// fetching `<app><endpoint>/manifest`. Pass `refresh=true` to bypass cache.
 func Load(ctx context.Context, slug string, refresh bool) (*Manifest, error) {
 	path, err := cachePath(slug)
 	if err != nil {
@@ -81,7 +85,7 @@ func Fetch(ctx context.Context, slug string) (*Manifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	url := app.URL + "/api/v2/manifest"
+	url := app.URL + card.ActionsPath(ctx, slug) + "/manifest"
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Accept", "application/json")
 	resp, err := http.DefaultClient.Do(req)

@@ -248,7 +248,8 @@ func (c *Client) Rpc(ctx context.Context, appURL, feature, action string, payloa
 	return json.Unmarshal(respBody, out)
 }
 
-// V2 posts {feature, action, payload} to `<app>/api/v2`. Returns raw envelope.
+// V2 posts {feature, action, payload} to the app's action dispatcher:
+// `<app><opts.Endpoint>`, /api/v2 when unset. Returns raw envelope.
 // Per-app shapes vary so we don't unwrap.
 type V2Result struct {
 	OK     bool
@@ -259,6 +260,8 @@ type V2Result struct {
 type V2Opts struct {
 	Validate   *bool // nil = default true (skip manifest fetch if false)
 	InstanceID string
+	// Endpoint is the dispatcher path, from card.ActionsPath. Empty = /api/v2.
+	Endpoint string
 }
 
 func (c *Client) V2(ctx context.Context, appURL, featureAction string, payload any, opts V2Opts) (V2Result, error) {
@@ -280,7 +283,11 @@ func (c *Client) V2(ctx context.Context, appURL, featureAction string, payload a
 	body, _ := json.Marshal(map[string]any{
 		"feature": feature, "action": action, "payload": coalescePayload(payload),
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, appURL+"/api/v2", bytes.NewReader(body))
+	endpoint := opts.Endpoint
+	if endpoint == "" {
+		endpoint = "/api/v2"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, appURL+endpoint, bytes.NewReader(body))
 	if err != nil {
 		return V2Result{}, err
 	}

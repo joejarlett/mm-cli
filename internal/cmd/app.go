@@ -107,7 +107,7 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 	verb := args[0]
 	rest := args[1:]
 
-	// dispatch sends feature.action to the app's /api/v2 with instance
+	// dispatch sends feature.action to the app's dispatcher with instance
 	// resolution + rendering shared with the kb/crm wrappers (see runV2).
 	dispatch := func(featureAction string, payload map[string]any) error {
 		return runV2(cmd, slug, featureAction, payload, instance)
@@ -158,7 +158,8 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 	}
 }
 
-// runV2 dispatches feature.action to an app's /api/v2 with instance
+// runV2 dispatches feature.action to an app's action dispatcher (its card's
+// endpoint, /api/v2 before it moves) with instance
 // resolution and human/JSON rendering — the shared path behind the
 // universal verbs (app.go) and the kb/crm wrappers. When instanceFlag is
 // empty it resolves the user's instance (sole → pinned default → helpful
@@ -180,7 +181,10 @@ func runV2(cmd *cobra.Command, slug, featureAction string, payload map[string]an
 		}
 		inst = resolved
 	}
-	res, err := client.V2(ctx, app.URL, featureAction, payload, mmhttp.V2Opts{InstanceID: inst})
+	res, err := client.V2(ctx, app.URL, featureAction, payload, mmhttp.V2Opts{
+		InstanceID: inst,
+		Endpoint:   card.ActionsPath(ctx, slug),
+	})
 	if err != nil {
 		return err
 	}
