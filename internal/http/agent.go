@@ -213,11 +213,14 @@ func nodeBaseURL(registered string, isOwner bool, localSuffix string, suffixErr 
 	return fmt.Sprintf("https://%s.%s:%s", bare, localSuffix, port), nil
 }
 
-// ─── App /api/rpc (legacy) ─────────────────────────────────────────────
+// ─── App actions for the kb + crm wrappers ─────────────────────────────
 
-// Rpc posts {feature, action, payload} to `<app>/api/rpc`. Used by kb + crm.
-// Returns parsed JSON into `out`. Throws on HTTP error.
-func (c *Client) Rpc(ctx context.Context, appURL, feature, action string, payload, out any) error {
+// Rpc posts {feature, action, payload} to `<app><endpoint>`, the app's action
+// dispatcher (card.ActionsPath). Used by kb + crm. Until mm v0.2.10 this was
+// hard-coded to `/api/rpc`, a path the API standard's Wave 5 removes (kb's was
+// its legacy router, not the dispatcher). Returns parsed JSON into `out`; a
+// non-2xx is an error carrying the envelope's message.
+func (c *Client) Rpc(ctx context.Context, appURL, endpoint, feature, action string, payload, out any) error {
 	if c.Auth == nil {
 		return fmt.Errorf("Not authenticated. Run `mm login` first.")
 	}
@@ -226,7 +229,7 @@ func (c *Client) Rpc(ctx context.Context, appURL, feature, action string, payloa
 		"action":  action,
 		"payload": coalescePayload(payload),
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, appURL+"/api/rpc", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, appURL+endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -240,12 +243,36 @@ func (c *Client) Rpc(ctx context.Context, appURL, feature, action string, payloa
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
+		if msg := envelopeMessage(respBody); msg != "" {
+			return fmt.Errorf("%s.%s: %s", feature, action, msg)
+		}
 		return fmt.Errorf("%s API error (%d): %s", feature, resp.StatusCode, truncate(string(respBody), 200))
 	}
 	if out == nil {
 		return nil
 	}
 	return json.Unmarshal(respBody, out)
+}
+
+// envelopeMessage reads the first error's text from either envelope: the
+// dispatcher's {errors:[{message}]} or the legacy JSON:API {detail, title}.
+func envelopeMessage(body []byte) string {
+	var e struct {
+		Errors []struct {
+			Message string `json:"message"`
+			Detail  string `json:"detail"`
+			Title   string `json:"title"`
+		} `json:"errors"`
+	}
+	if json.Unmarshal(body, &e) != nil || len(e.Errors) == 0 {
+		return ""
+	}
+	for _, s := range []string{e.Errors[0].Message, e.Errors[0].Detail, e.Errors[0].Title} {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // V2 posts {feature, action, payload} to the app's action dispatcher:

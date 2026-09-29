@@ -126,6 +126,10 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 		if q == "" {
 			return fmt.Errorf("Usage: mm %s ask \"<question>\"", slug)
 		}
+		c, err := card.Load(ctx, slug, false)
+		if err == nil && !c.HasCapability("ask") {
+			return fmt.Errorf("%s has no agent to ask (its card lists no 'ask'); try `mm %s <feature> <action>`", slug, slug)
+		}
 		return dispatch("agent.chat", map[string]any{"question": q})
 	case "find":
 		q := strings.Join(rest, " ")
@@ -134,7 +138,10 @@ func runAppDispatch(cmd *cobra.Command, slug string, args []string) error {
 		}
 		c, err := card.Load(ctx, slug, false)
 		if err == nil && !c.HasCapability("search") {
-			return fmt.Errorf("%s doesn't advertise the 'search' capability; try `mm %s ask`", slug, slug)
+			if c.HasCapability("ask") {
+				return fmt.Errorf("%s doesn't advertise the 'search' capability; try `mm %s ask`", slug, slug)
+			}
+			return fmt.Errorf("%s doesn't advertise the 'search' capability; try `mm %s <feature> <action>`", slug, slug)
 		}
 		return dispatch("agent.search", map[string]any{"query": q})
 	case "do":

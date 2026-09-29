@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"mm-cli/internal/apps"
+	"mm-cli/internal/card"
 	mmhttp "mm-cli/internal/http"
 )
 
@@ -70,8 +71,9 @@ type apiResource struct {
 	Attributes map[string]any `json:"attributes"`
 }
 type apiError struct {
-	Title  string `json:"title"`
-	Detail string `json:"detail"`
+	Title   string `json:"title"`
+	Detail  string `json:"detail"`
+	Message string `json:"message"`
 }
 type apiList struct {
 	Data   []apiResource `json:"data"`
@@ -90,14 +92,17 @@ func kbCall(ctx context.Context, feature, action string, payload map[string]any)
 		return nil, err
 	}
 	var raw json.RawMessage
-	if err := mmhttp.New().Rpc(ctx, app.URL, feature, action, payload, &raw); err != nil {
+	if err := mmhttp.New().Rpc(ctx, app.URL, card.ActionsPath(ctx, "kb"), feature, action, payload, &raw); err != nil {
 		return nil, err
 	}
 	var probe struct {
 		Errors []apiError `json:"errors"`
 	}
 	if json.Unmarshal(raw, &probe) == nil && len(probe.Errors) > 0 {
-		msg := probe.Errors[0].Detail
+		msg := probe.Errors[0].Message
+		if msg == "" {
+			msg = probe.Errors[0].Detail
+		}
 		if msg == "" {
 			msg = probe.Errors[0].Title
 		}
@@ -1768,33 +1773,12 @@ func newKbActionsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "actions",
 		Aliases: []string{"introspect"},
-		Short:   "List the full RPC surface (self-discovery)",
+		Short:   "List every KB action (its manifest)",
 		Args:    cobra.NoArgs,
+		// The manifest is the list: `meta.actions` answered only on KB's legacy
+		// /api/rpc router, which the API standard's Wave 5 removes.
 		RunE: func(cmd *cobra.Command, args []string) error {
-			raw, err := kbCall(cmd.Context(), "meta", "actions", nil)
-			if err != nil {
-				return err
-			}
-			var resp struct {
-				Data struct {
-					Features []struct {
-						Feature string   `json:"feature"`
-						Type    string   `json:"type"`
-						Actions []string `json:"actions"`
-					} `json:"features"`
-				} `json:"data"`
-			}
-			_ = json.Unmarshal(raw, &resp)
-			var b strings.Builder
-			b.WriteString("# KB RPC surface\n\n")
-			for _, f := range resp.Data.Features {
-				quoted := make([]string, len(f.Actions))
-				for i, a := range f.Actions {
-					quoted[i] = "`" + a + "`"
-				}
-				fmt.Fprintf(&b, "## %s _(%s)_\n\n%s\n\n", f.Feature, f.Type, strings.Join(quoted, " · "))
-			}
-			return emit(cmd, raw, strings.TrimRight(b.String(), "\n"))
+			return runManifest(cmd, []string{"kb"})
 		},
 	}
 }
@@ -1804,12 +1788,14 @@ func newKbStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "KB health + auth check",
 		Args:  cobra.NoArgs,
+		// A signed-in read proves both: KB answers, and this key is accepted.
+		// It called `status.get`, which KB never had (mm-cli d2fb4e2, May).
 		RunE: func(cmd *cobra.Command, args []string) error {
-			raw, err := kbCall(cmd.Context(), "status", "get", nil)
+			list, raw, err := kbList(cmd.Context(), "collections", "list", nil)
 			if err != nil {
 				return err
 			}
-			return emit(cmd, raw, "KB: "+string(raw))
+			return emit(cmd, raw, fmt.Sprintf("KB: ok, signed in, %d notebooks", len(list.Data)))
 		},
 	}
 }
@@ -1828,7 +1814,7 @@ func doRpcAndRender(ctx context.Context, slug, feature, action string, payload m
 	}
 	client := mmhttp.New()
 	var raw json.RawMessage
-	if err := client.Rpc(ctx, app.URL, feature, action, payload, &raw); err != nil {
+	if err := client.Rpc(ctx, app.URL, card.ActionsPath(ctx, slug), feature, action, payload, &raw); err != nil {
 		return err
 	}
 	var probe struct {

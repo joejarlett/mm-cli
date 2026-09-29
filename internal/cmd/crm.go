@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"mm-cli/internal/apps"
+	"mm-cli/internal/card"
 	mmhttp "mm-cli/internal/http"
 )
 
@@ -104,7 +105,7 @@ func renderCrmTree(cmd *cobra.Command) error {
 	}
 	client := mmhttp.New()
 	var raw json.RawMessage
-	if err := client.Rpc(cmd.Context(), app.URL, "tree", "show", nil, &raw); err != nil {
+	if err := client.Rpc(cmd.Context(), app.URL, card.ActionsPath(cmd.Context(), "crm"), "tree", "show", nil, &raw); err != nil {
 		return err
 	}
 	if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
@@ -208,7 +209,7 @@ func rpcDumpJSON(ctx context.Context, slug, feature, action string, payload map[
 	}
 	client := mmhttp.New()
 	var raw json.RawMessage
-	if err := client.Rpc(ctx, app.URL, feature, action, payload, &raw); err != nil {
+	if err := client.Rpc(ctx, app.URL, card.ActionsPath(ctx, slug), feature, action, payload, &raw); err != nil {
 		return err
 	}
 	var pretty interface{}
