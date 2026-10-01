@@ -29,6 +29,7 @@ var Registry = map[string]Entry{
 	"konte":          {Slug: "konte", URL: "https://konte.meta-me.uk", Description: "Konte — agent-driven YouTube production: ideas, research, scripts, storyboards, exports (multi-instance)"},
 	"gn-native":      {Slug: "gn-native", URL: "https://gn-native.meta-me.uk", Description: "GroundedNinja (native) — journal, practices, Future Self, sages, conversations"},
 	"sandbox-native": {Slug: "sandbox-native", URL: "https://sandbox-native.meta-me.uk", Description: "Sandbox Native — the native-app template: notes, labels, exercises, conversations"},
+	"jspa":           {Slug: "jspa", URL: "https://jspa.jarlett.uk", Description: "JSPA — granular sampler: sample library, catalogue, players' rigs"},
 }
 
 // Resolve looks up an app slug; returns an error listing known slugs on miss.
