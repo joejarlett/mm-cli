@@ -25,7 +25,7 @@ var protectedContainers = map[string]bool{
 	"mm-postgres": true, "mm-nginx": true, "mm-auth": true, "jj-home": true,
 }
 var protectedServices = map[string]bool{
-	"mm-infra-api": true, "mm-local-agent": true, "mm-host": true,
+	"mm-infra-api": true, "mm-local-agent": true, "desk-agent": true, "mm-host": true,
 	"com.cloudflare.cloudflared": true,
 }
 
