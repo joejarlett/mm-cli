@@ -32,10 +32,10 @@ func TestActionsPath(t *testing.T) {
 		want   string
 	}{
 		{"an app on the standard", `{"name":"kb","endpoint":"/api/actions"}`, 200, "/api/actions"},
-		{"an app that hasn't moved", `{"name":"kb","chatUrl":"/api/v2"}`, 200, "/api/v2"},
-		{"chatUrl alone never moves actions", `{"name":"kb","chatUrl":"/api/elsewhere"}`, 200, "/api/v2"},
-		{"no card at all", `not found`, 404, "/api/v2"},
-		{"a malformed card", `{"endpoint":"/api/actions"}`, 200, "/api/v2"},
+		{"an app that hasn't moved", `{"name":"kb","chatUrl":"/api/v2"}`, 200, "/api/actions"},
+		{"chatUrl alone never moves actions", `{"name":"kb","chatUrl":"/api/elsewhere"}`, 200, "/api/actions"},
+		{"no card at all", `not found`, 404, "/api/actions"},
+		{"a malformed card", `{"endpoint":"/api/actions"}`, 200, "/api/actions"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestActionsPath(t *testing.T) {
 
 func TestActionsPathNilCard(t *testing.T) {
 	var c *Card
-	if got := c.ActionsPath(); got != "/api/v2" {
-		t.Fatalf("nil card ActionsPath = %q, want /api/v2", got)
+	if got := c.ActionsPath(); got != "/api/actions" {
+		t.Fatalf("nil card ActionsPath = %q, want /api/actions", got)
 	}
 }

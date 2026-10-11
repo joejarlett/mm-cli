@@ -117,10 +117,13 @@ func Fetch(ctx context.Context, slug string) (*Card, error) {
 }
 
 // LegacyEndpoint is where an app that hasn't declared an endpoint is reached.
-const LegacyEndpoint = "/api/v2"
+// Wave 5 (specs/api-standard.md) removed /api/v2 from every app — each now
+// answers it with 404 — so the fallback is the standard endpoint itself.
+const LegacyEndpoint = "/api/actions"
 
 // ActionsPath is the path of the app's action dispatcher: the card's
-// endpoint, else /api/v2 (meta-me.uk specs/api-standard.md, rule 2). Nil-safe.
+// endpoint, else /api/actions (meta-me.uk specs/api-standard.md, rule 1).
+// Nil-safe.
 func (c *Card) ActionsPath() string {
 	if c == nil || c.Endpoint == "" {
 		return LegacyEndpoint
@@ -131,8 +134,8 @@ func (c *Card) ActionsPath() string {
 // ActionsPath resolves the dispatcher path for an app from its (cached) card.
 // The card is read, not the manifest, because the manifest is served at
 // <endpoint>/manifest. No card (unreachable, malformed, an app without one)
-// means /api/v2, which moved apps keep as an alias until they drop it, so a
-// stale cached card still lands.
+// means the standard endpoint /api/actions: every app serves it (Wave 4 done),
+// and /api/v2 was removed in Wave 5, so a stale cached card still lands.
 func ActionsPath(ctx context.Context, slug string) string {
 	c, err := Load(ctx, slug, false)
 	if err != nil {

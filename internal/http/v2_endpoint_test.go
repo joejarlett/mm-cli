@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-// V2 posts to the endpoint it is given (the card's), /api/v2 when empty.
+// V2 posts to the endpoint it is given (the card's), /api/actions when empty.
 func TestV2Endpoint(t *testing.T) {
 	for _, tc := range []struct{ endpoint, want string }{
 		{"/api/actions", "/api/actions"},
-		{"", "/api/v2"},
+		{"", "/api/actions"},
 	} {
 		var gotPath string
 		var gotBody map[string]any

@@ -8,14 +8,14 @@ import (
 )
 
 // The manifest is fetched at <endpoint>/manifest, the endpoint read from the
-// card: /api/actions/manifest for an app on the standard, /api/v2/manifest
-// for one that hasn't moved.
+// card: /api/actions/manifest for an app on the standard, and the same path
+// for one that hasn't moved (Wave 5 removed /api/v2).
 func TestFetchFollowsTheCard(t *testing.T) {
 	cases := []struct {
 		name, card, wantPath string
 	}{
 		{"on the standard", `{"name":"kb","endpoint":"/api/actions"}`, "/api/actions/manifest"},
-		{"not moved", `{"name":"kb"}`, "/api/v2/manifest"},
+		{"not moved", `{"name":"kb"}`, "/api/actions/manifest"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

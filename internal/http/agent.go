@@ -276,7 +276,7 @@ func envelopeMessage(body []byte) string {
 }
 
 // V2 posts {feature, action, payload} to the app's action dispatcher:
-// `<app><opts.Endpoint>`, /api/v2 when unset. Returns raw envelope.
+// `<app><opts.Endpoint>`, /api/actions when unset. Returns raw envelope.
 // Per-app shapes vary so we don't unwrap.
 type V2Result struct {
 	OK     bool
@@ -287,7 +287,7 @@ type V2Result struct {
 type V2Opts struct {
 	Validate   *bool // nil = default true (skip manifest fetch if false)
 	InstanceID string
-	// Endpoint is the dispatcher path, from card.ActionsPath. Empty = /api/v2.
+	// Endpoint is the dispatcher path, from card.ActionsPath. Empty = /api/actions.
 	Endpoint string
 }
 
@@ -312,7 +312,7 @@ func (c *Client) V2(ctx context.Context, appURL, featureAction string, payload a
 	})
 	endpoint := opts.Endpoint
 	if endpoint == "" {
-		endpoint = "/api/v2"
+		endpoint = "/api/actions"
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, appURL+endpoint, bytes.NewReader(body))
 	if err != nil {
