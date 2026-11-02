@@ -24,6 +24,7 @@ func NewCrmCmd() *cobra.Command {
 		newCrmSurfaceCmd(), newCrmContactsCmd(), newCrmProjectsCmd(),
 		newCrmLogCmd(), newCrmContextCmd(), newCrmPeekCmd(),
 		newCrmReadCmd(), newCrmFindCmd(), newCrmAskCmd(), newCrmUseCmd(),
+		newCrmUpdateCmd(), newCrmDeleteCmd(),
 	)
 	c.Args = cobra.ArbitraryArgs
 	c.RunE = func(cmd *cobra.Command, args []string) error {
@@ -179,7 +180,67 @@ func newCrmPeekCmd() *cobra.Command {
 func newCrmReadCmd() *cobra.Command {
 	return &cobra.Command{Use: "read [id]", Short: "Full content", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return crmDispatch(cmd, "read", "show", map[string]any{"target": args[0]})
+			if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
+				return rpcDumpJSON(cmd.Context(), "crm", "read", "show", map[string]any{"target": args[0]})
+			}
+			app, err := apps.Resolve("crm")
+			if err != nil {
+				return err
+			}
+			var resp struct {
+				Data struct {
+					Attributes struct {
+						Content string `json:"content"`
+					} `json:"attributes"`
+				} `json:"data"`
+			}
+			if err := mmhttp.New().Rpc(cmd.Context(), app.URL, card.ActionsPath(cmd.Context(), "crm"), "read", "show", map[string]any{"target": args[0]}, &resp); err != nil {
+				return err
+			}
+			if resp.Data.Attributes.Content == "" {
+				return fmt.Errorf("crm read: no content returned for %s", args[0])
+			}
+			fmt.Print(resp.Data.Attributes.Content)
+			return nil
+		}}
+}
+
+// newCrmUpdateCmd changes a logged note in place. A correction belongs here, not
+// in a second `mm crm log`, which would read as a second conversation.
+func newCrmUpdateCmd() *cobra.Command {
+	var title, summary, channel, direction, occurredAt, person string
+	c := &cobra.Command{Use: "update [id] [text]", Short: "Change a logged note", Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{"target": args[0]}
+			if len(args) > 1 {
+				payload["text"] = strings.Join(args[1:], " ")
+			}
+			for key, value := range map[string]string{
+				"title": title, "summary": summary, "channel": channel,
+				"direction": direction, "occurredAt": occurredAt, "person": person,
+			} {
+				if value != "" {
+					payload[key] = value
+				}
+			}
+			if len(payload) == 1 {
+				return fmt.Errorf("nothing to update: give new text or a flag")
+			}
+			return crmDispatch(cmd, "interaction", "update", payload)
+		}}
+	c.Flags().StringVar(&title, "title", "", "New title")
+	c.Flags().StringVar(&summary, "summary", "", "New summary")
+	c.Flags().StringVar(&channel, "channel", "", "call, email, meeting, note, voice or chat")
+	c.Flags().StringVar(&direction, "direction", "", "me_to_them, them_to_me or mutual")
+	c.Flags().StringVar(&occurredAt, "occurred-at", "", "When it happened, as an ISO datetime")
+	c.Flags().StringVar(&person, "person", "", "Contact name or id to link the note to")
+	return c
+}
+
+func newCrmDeleteCmd() *cobra.Command {
+	return &cobra.Command{Use: "delete [id]", Short: "Permanently delete a logged note", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return crmDispatch(cmd, "interaction", "delete", map[string]any{"target": args[0]})
 		}}
 }
 func newCrmFindCmd() *cobra.Command {
