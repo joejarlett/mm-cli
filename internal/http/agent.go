@@ -215,6 +215,14 @@ func nodeBaseURL(registered string, isOwner bool, localSuffix string, suffixErr 
 
 // ─── App actions for the kb + crm wrappers ─────────────────────────────
 
+type instanceKey struct{}
+
+// WithInstance aims every Rpc made with ctx at one app instance, instead of the
+// caller's default.
+func WithInstance(ctx context.Context, instanceID string) context.Context {
+	return context.WithValue(ctx, instanceKey{}, instanceID)
+}
+
 // Rpc posts {feature, action, payload} to `<app><endpoint>`, the app's action
 // dispatcher (card.ActionsPath). Used by kb + crm. Until mm v0.2.10 this was
 // hard-coded to `/api/rpc`, a path the API standard's Wave 5 removes (kb's was
@@ -236,6 +244,9 @@ func (c *Client) Rpc(ctx context.Context, appURL, endpoint, feature, action stri
 	req.Header.Set("Authorization", "Bearer "+c.Auth.Token)
 	req.Header.Set("X-Hub-User-Id", c.Auth.UserID)
 	req.Header.Set("Content-Type", "application/json")
+	if instanceID, _ := ctx.Value(instanceKey{}).(string); instanceID != "" {
+		req.Header.Set("X-Hub-Instance-Id", instanceID)
+	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("rpc request: %w", err)

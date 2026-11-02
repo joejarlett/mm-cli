@@ -58,6 +58,24 @@ func TestRpcOtherNonJSONFails(t *testing.T) {
 	}
 }
 
+func TestRpcSendsInstanceOnlyWhenAimed(t *testing.T) {
+	var got []string
+	srv := httptest.NewServer(stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		got = append(got, r.Header.Get("X-Hub-Instance-Id"))
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := &Client{HTTPClient: srv.Client(), Auth: &auth.State{Token: "t", UserID: "u"}}
+	for _, ctx := range []context.Context{context.Background(), WithInstance(context.Background(), "inst-1")} {
+		if err := c.Rpc(ctx, srv.URL, "/api/actions", "interaction", "log", nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got[0] != "" || got[1] != "inst-1" {
+		t.Fatalf("headers = %q", got)
+	}
+}
+
 func TestRpcEnvelopesStillWork(t *testing.T) {
 	var raw json.RawMessage
 	if err := rpcReturning(t, 200, `{"data":[]}`, &raw); err != nil || string(raw) != `{"data":[]}` {

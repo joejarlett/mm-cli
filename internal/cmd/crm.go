@@ -26,6 +26,7 @@ func NewCrmCmd() *cobra.Command {
 		newCrmReadCmd(), newCrmFindCmd(), newCrmAskCmd(), newCrmUseCmd(),
 		newCrmUpdateCmd(), newCrmDeleteCmd(),
 	)
+	c.PersistentFlags().String("instance", "", "CRM to use for this command, by name or id, instead of the default")
 	c.Args = cobra.ArbitraryArgs
 	c.RunE = func(cmd *cobra.Command, args []string) error {
 		if len(args) < 2 {
@@ -36,10 +37,40 @@ func NewCrmCmd() *cobra.Command {
 	return c
 }
 
+// crmInstanceID resolves --instance to an id, or "" when it wasn't given.
+func crmInstanceID(cmd *cobra.Command) (string, error) {
+	target, _ := cmd.Flags().GetString("instance")
+	if target == "" {
+		return "", nil
+	}
+	items, err := listInstances(cmd.Context(), mmhttp.New(), "crm")
+	if err != nil {
+		return "", err
+	}
+	match, err := matchInstance(items, target)
+	if err != nil {
+		return "", err
+	}
+	return match.ID, nil
+}
+
+// crmContext is cmd's context, aimed at --instance when one was given.
+func crmContext(cmd *cobra.Command) (context.Context, error) {
+	id, err := crmInstanceID(cmd)
+	if err != nil || id == "" {
+		return cmd.Context(), err
+	}
+	return mmhttp.WithInstance(cmd.Context(), id), nil
+}
+
 func newCrmAskCmd() *cobra.Command {
 	return &cobra.Command{Use: "ask [question]", Short: "Ask the CRM agent (agent.chat)", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runV2(cmd, "crm", "agent.chat", map[string]any{"question": strings.Join(args, " ")}, "")
+			id, err := crmInstanceID(cmd)
+			if err != nil {
+				return err
+			}
+			return runV2(cmd, "crm", "agent.chat", map[string]any{"question": strings.Join(args, " ")}, id)
 		}}
 }
 
@@ -60,6 +91,11 @@ func newCrmUseCmd() *cobra.Command {
 func newCrmSurfaceCmd() *cobra.Command {
 	return &cobra.Command{Use: "surface", Short: "What's surfacing now (alias of `mm surface crm`)", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The surface comes from the hub, which takes no instance, so
+			// honouring the flag silently here would show the wrong CRM.
+			if target, _ := cmd.Flags().GetString("instance"); target != "" {
+				return fmt.Errorf("mm crm surface can't take --instance: it always shows the default CRM")
+			}
 			return surfaceScoped(cmd, "crm", 0)
 		}}
 }
@@ -104,9 +140,13 @@ func renderCrmTree(cmd *cobra.Command) error {
 	if err != nil {
 		return err
 	}
+	ctx, err := crmContext(cmd)
+	if err != nil {
+		return err
+	}
 	client := mmhttp.New()
 	var raw json.RawMessage
-	if err := client.Rpc(cmd.Context(), app.URL, card.ActionsPath(cmd.Context(), "crm"), "tree", "show", nil, &raw); err != nil {
+	if err := client.Rpc(ctx, app.URL, card.ActionsPath(ctx, "crm"), "tree", "show", nil, &raw); err != nil {
 		return err
 	}
 	if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
@@ -180,8 +220,12 @@ func newCrmPeekCmd() *cobra.Command {
 func newCrmReadCmd() *cobra.Command {
 	return &cobra.Command{Use: "read [id]", Short: "Full content", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx, err := crmContext(cmd)
+			if err != nil {
+				return err
+			}
 			if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
-				return rpcDumpJSON(cmd.Context(), "crm", "read", "show", map[string]any{"target": args[0]})
+				return rpcDumpJSON(ctx, "crm", "read", "show", map[string]any{"target": args[0]})
 			}
 			app, err := apps.Resolve("crm")
 			if err != nil {
@@ -194,7 +238,7 @@ func newCrmReadCmd() *cobra.Command {
 					} `json:"attributes"`
 				} `json:"data"`
 			}
-			if err := mmhttp.New().Rpc(cmd.Context(), app.URL, card.ActionsPath(cmd.Context(), "crm"), "read", "show", map[string]any{"target": args[0]}, &resp); err != nil {
+			if err := mmhttp.New().Rpc(ctx, app.URL, card.ActionsPath(ctx, "crm"), "read", "show", map[string]any{"target": args[0]}, &resp); err != nil {
 				return err
 			}
 			if resp.Data.Attributes.Content == "" {
@@ -254,10 +298,14 @@ func newCrmFindCmd() *cobra.Command {
 // (parseable, no markdown) per the repo's "all query commands support --json"
 // rule; otherwise it renders markdown via the shared renderer.
 func crmDispatch(cmd *cobra.Command, feature, action string, payload map[string]any) error {
-	if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
-		return rpcDumpJSON(cmd.Context(), "crm", feature, action, payload)
+	ctx, err := crmContext(cmd)
+	if err != nil {
+		return err
 	}
-	return doRpcAndRender(cmd.Context(), "crm", feature, action, payload)
+	if wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json"); wantJSON {
+		return rpcDumpJSON(ctx, "crm", feature, action, payload)
+	}
+	return doRpcAndRender(ctx, "crm", feature, action, payload)
 }
 
 // rpcDumpJSON runs an RPC and prints the indented envelope to stdout. House
