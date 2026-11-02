@@ -1826,9 +1826,19 @@ func doRpcAndRender(ctx context.Context, slug, feature, action string, payload m
 		Meta map[string]interface{} `json:"meta"`
 	}
 	if err := json.Unmarshal(raw, &probe); err == nil {
+		notice := stringFirst(probe.Meta, "notice")
+		if notice != "" {
+			fmt.Printf("**%s**\n\n", notice)
+			if len(probe.Data) == 0 {
+				return nil
+			}
+		}
 		if len(probe.Data) > 0 {
 			for _, h := range probe.Data {
 				title := stringFirst(h.Attributes, "title", "name", "shortTitle", "label")
+				if slug == "crm" && feature == "find" && h.Type == "contact" {
+					title += " (contact)"
+				}
 				summary := stringFirst(h.Attributes, "summary")
 				idShort := h.ID
 				if len(idShort) > 8 {
