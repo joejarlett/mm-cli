@@ -44,6 +44,13 @@ func TestRpcMaintenancePageFails(t *testing.T) {
 	}
 }
 
+func TestRpcMissingEndpointIsNotCalledUnreachable(t *testing.T) {
+	err := rpcReturning(t, 404, "<html>Not found</html>", nil)
+	if err == nil || strings.Contains(err.Error(), "unreachable") || !strings.Contains(err.Error(), "HTTP 404") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func TestRpcOtherNonJSONFails(t *testing.T) {
 	err := rpcReturning(t, 200, "upstream said no", nil)
 	if err == nil || !strings.Contains(err.Error(), "non-JSON response") || !strings.Contains(err.Error(), "upstream said no") {

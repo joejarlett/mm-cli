@@ -264,6 +264,9 @@ func (c *Client) Rpc(ctx context.Context, appURL, endpoint, feature, action stri
 func nonJSONError(feature, action string, status int, body []byte) error {
 	const unconfirmed = "If this was a write, it isn't confirmed: check whether it landed before retrying."
 	if bytes.HasPrefix(bytes.TrimSpace(body), []byte("<")) {
+		if status/100 == 4 {
+			return fmt.Errorf("%s.%s: HTTP %d returned a web page, not JSON, so this endpoint may have moved. %s", feature, action, status, unconfirmed)
+		}
 		return fmt.Errorf("%s.%s: hub unreachable (HTTP %d returned a web page, not JSON). %s", feature, action, status, unconfirmed)
 	}
 	return fmt.Errorf("%s.%s: non-JSON response (HTTP %d): %s. %s", feature, action, status, truncate(string(body), 200), unconfirmed)
