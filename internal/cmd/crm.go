@@ -25,6 +25,11 @@ func NewCrmCmd() *cobra.Command {
 		newCrmLogCmd(), newCrmContextCmd(), newCrmPeekCmd(),
 		newCrmReadCmd(), newCrmFindCmd(), newCrmAskCmd(), newCrmUseCmd(),
 		newCrmUpdateCmd(), newCrmDeleteCmd(),
+		newCrmCommitmentsCmd(), newCrmReviewCmd(), newCrmEditCmd(),
+		newCrmAtomCmd("approve", "Confirm an atom or captured contact, or restore a rejected atom"),
+		newCrmAtomCmd("reject", "Remove a wrong commitment, question, position or contact from every view"),
+		newCrmAtomCmd("close", "Close an open commitment or question"),
+		newCrmAtomCmd("reopen", "Reopen a closed commitment or question"),
 	)
 	c.PersistentFlags().String("instance", "", "CRM to use for this command, by name or id, instead of the default")
 	c.Args = cobra.ArbitraryArgs
@@ -287,6 +292,62 @@ func newCrmDeleteCmd() *cobra.Command {
 			return crmDispatch(cmd, "interaction", "delete", map[string]any{"target": args[0]})
 		}}
 }
+// newCrmAtomCmd covers the atom verbs that take an id and an optional reason.
+func newCrmAtomCmd(action, short string) *cobra.Command {
+	return &cobra.Command{Use: action + " [id] [reason]", Short: short, Args: cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{"target": args[0]}
+			if len(args) > 1 {
+				payload["reason"] = strings.Join(args[1:], " ")
+			}
+			return crmDispatch(cmd, "atom", action, payload)
+		}}
+}
+
+func newCrmEditCmd() *cobra.Command {
+	var title, action, due, value string
+	c := &cobra.Command{Use: "edit [id]", Short: "Correct an atom, which also approves it", Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{"target": args[0]}
+			for key, v := range map[string]string{"title": title, "action": action, "deadline": due, "value": value} {
+				if v != "" {
+					payload[key] = v
+				}
+			}
+			if len(payload) == 1 {
+				return fmt.Errorf("nothing to edit: give --title, --action, --due or --value")
+			}
+			return crmDispatch(cmd, "atom", "edit", payload)
+		}}
+	c.Flags().StringVar(&title, "title", "", "New title")
+	c.Flags().StringVar(&action, "action", "", "A commitment's new action")
+	c.Flags().StringVar(&due, "due", "", "A commitment's new due date")
+	c.Flags().StringVar(&value, "value", "", "A position's new value")
+	return c
+}
+
+func newCrmCommitmentsCmd() *cobra.Command {
+	var person, state string
+	c := &cobra.Command{Use: "commitments", Short: "List commitments", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			payload := map[string]any{"state": state, "limit": 100}
+			if person != "" {
+				payload["by"] = person
+			}
+			return crmDispatch(cmd, "promised", "list", payload)
+		}}
+	c.Flags().StringVar(&person, "by", "", "Only those owned by this contact")
+	c.Flags().StringVar(&state, "state", "open", "open, resolved, expired, overdue or any")
+	return c
+}
+
+func newCrmReviewCmd() *cobra.Command {
+	return &cobra.Command{Use: "review", Short: "List what's waiting for review", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return crmDispatch(cmd, "review", "list", map[string]any{"limit": 100})
+		}}
+}
+
 func newCrmFindCmd() *cobra.Command {
 	return &cobra.Command{Use: "find [query]", Short: "Search the CRM", Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
