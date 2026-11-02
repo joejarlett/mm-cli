@@ -23,7 +23,7 @@ func NewTasksCmd() *cobra.Command {
 	}
 	cmd.Flags().Int("days", 7, "Window in days")
 	cmd.Flags().Bool("all", false, "Include all lists")
-	cmd.Flags().String("account", "", "Pick a linked Google account")
+	cmd.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	cmd.AddCommand(newTasksListCmd(), newTasksAddCmd(), newTasksDoneCmd())
 	return cmd
 }
@@ -32,7 +32,7 @@ func newTasksListCmd() *cobra.Command {
 	c := &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List tasks", Args: cobra.NoArgs, RunE: runTasksList}
 	c.Flags().Int("days", 7, "Window in days")
 	c.Flags().Bool("all", false, "Include all lists")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -48,7 +48,7 @@ func newTasksAddCmd() *cobra.Command {
 	c.Flags().String("list", "", "Task list title")
 	c.Flags().String("list-id", "", "Task list id")
 	c.Flags().String("notes", "", "Long description")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -61,7 +61,7 @@ func newTasksDoneCmd() *cobra.Command {
 		RunE:    runTasksDone,
 	}
 	c.Flags().String("list-id", "", "Task list id (required)")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 

@@ -125,6 +125,7 @@ output. Start with 'mm cards' to see every app, or 'mm <app> --help'.`,
 	add(grpAccount, cmd.NewLogoutCmd())
 	add(grpAccount, cmd.NewWhoamiCmd())
 	add(grpAccount, cmd.NewStatusCmd())
+	add(grpAccount, cmd.NewAccountsCmd())
 
 	// CLI & admin — manage the tool itself + privileged hub ops.
 	add(grpSystem, admin.NewAdminCmd())

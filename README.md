@@ -104,6 +104,7 @@ mm apps                           # list registered apps
 mm health                         # hub health checks
 
 mm status                         # auth + which apps the bearer sees
+mm accounts                       # linked Google accounts, for --account
 mm --json <any command>           # parseable output
 ```
 

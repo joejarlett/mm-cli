@@ -1,6 +1,6 @@
 # Linked Google accounts, and future dates in `mm drive ls`
 
-**Status:** Ready to build. Two small, separate fixes, found on 2 Nov 2026 while testing Google services after a reconnect. The account listing needs one check first (see below).
+**Status:** Built 2 Nov 2026. Two small, separate fixes, found the same day while testing Google services after a reconnect. Live checks of `mm accounts` and the new `mm drive ls` order need meta-me.uk c6c89e2 deployed.
 
 ## 1. Future-dated files show as "just now"
 

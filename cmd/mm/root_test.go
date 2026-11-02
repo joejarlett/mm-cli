@@ -33,6 +33,7 @@ var wantRootCommands = map[string][]string{
 	"keel":           nil,
 	"konte":          nil,
 	"sandbox-native": nil,
+	"jspa":           nil,
 
 	// Google Workspace.
 	"email":    nil,
@@ -54,10 +55,11 @@ var wantRootCommands = map[string][]string{
 	"surface":  nil,
 
 	// Account.
-	"login":  nil,
-	"logout": nil,
-	"whoami": nil,
-	"status": nil,
+	"login":    nil,
+	"logout":   nil,
+	"whoami":   nil,
+	"status":   nil,
+	"accounts": nil,
 
 	// CLI & admin.
 	"admin":    nil,

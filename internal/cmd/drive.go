@@ -39,7 +39,7 @@ func newDriveReadCmd() *cobra.Command {
 	}
 	c.Flags().String("as", "txt", "Export format: txt|html|pdf|md (pdf needs --out)")
 	c.Flags().String("out", "", "Write to this path instead of stdout")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -50,7 +50,7 @@ func newDriveGetCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE:  runDriveGet,
 	}
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -62,7 +62,7 @@ func newDriveDownloadCmd() *cobra.Command {
 		RunE:  runDriveDownload,
 	}
 	c.Flags().String("out", "", "Write to this path instead of stdout")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -70,7 +70,7 @@ func newDriveListCmd() *cobra.Command {
 	c := &cobra.Command{Use: "ls", Aliases: []string{"list"}, Short: "List files (filter with --q)", Args: cobra.NoArgs, RunE: runDriveList}
 	c.Flags().String("q", "", "Drive search query")
 	c.Flags().Int("max", 20, "Max results")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -85,7 +85,7 @@ func newDriveDocCmd() *cobra.Command {
 	c.Flags().String("text", "", "Inline content")
 	c.Flags().String("mime", "text/markdown", "Source mime: text/markdown|text/plain|text/html")
 	c.Flags().String("folder", "", "Target folder id")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -100,7 +100,7 @@ func newDriveMoveCmd() *cobra.Command {
 	c.Flags().String("name", "", "New name")
 	c.Flags().String("parent", "", "Add a parent (move into)")
 	c.Flags().String("unparent", "", "Remove a parent (move out of)")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -118,7 +118,7 @@ func newDriveCopyCmd() *cobra.Command {
 	}
 	c.Flags().String("name", "", "Name for the copy (default: Drive's \"Copy of …\")")
 	c.Flags().String("folder", "", "Put the copy in this folder id")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -135,7 +135,7 @@ func newDriveRemoveCmd() *cobra.Command {
 		RunE: runDriveRemove,
 	}
 	c.Flags().Bool("restore", false, "Restore from Trash instead of trashing")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -157,7 +157,7 @@ func newDriveUploadCmd() *cobra.Command {
 	c.Flags().String("name", "", "Name in Drive (default: the file's own name)")
 	c.Flags().String("folder", "", "Put it in this folder id")
 	c.Flags().String("mime", "", "Content type (default: guessed from the extension)")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -239,7 +239,7 @@ func newDriveReplaceCmd() *cobra.Command {
 	}
 	c.Flags().StringArray("set", nil, "find=replace (repeatable)")
 	c.Flags().String("json-file", "", "Path to a JSON array of {find, replace}")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -639,6 +639,20 @@ func runDriveMove(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// clockSkewAllowance is how far ahead a timestamp can be and still read as
+// "just now": ordinary drift between our clock and whoever stamped it.
+const clockSkewAllowance = 5 * time.Minute
+
+// fmtFutureDate reports a timestamp that is really in the future. Google's
+// dates are set by whoever wrote the file or the mail, so they can be years
+// ahead, and a relative label would make them look like the newest thing there.
+func fmtFutureDate(t time.Time) (string, bool) {
+	if time.Until(t) <= clockSkewAllowance {
+		return "", false
+	}
+	return t.Format("2006-01-02") + " (future date)", true
+}
+
 func fmtWhen(iso string) string {
 	if iso == "" {
 		return "—"
@@ -646,6 +660,9 @@ func fmtWhen(iso string) string {
 	t, err := time.Parse(time.RFC3339, iso)
 	if err != nil {
 		return iso
+	}
+	if s, ok := fmtFutureDate(t); ok {
+		return s
 	}
 	diff := time.Since(t)
 	switch {

@@ -618,3 +618,17 @@ type HubErrItem struct {
 	Detail string `json:"detail,omitempty"`
 	Status string `json:"status,omitempty"`
 }
+
+// HubGoogleAccount is one row of integrations.googleAccounts. Slug is null until
+// the account is granted Workspace, and then it can't be picked with --account.
+type HubGoogleAccount struct {
+	Email       *string `json:"email"`
+	Slug        *string `json:"slug"`
+	IsDefault   bool    `json:"isDefault"`
+	NeedsRelink bool    `json:"needsRelink"`
+}
+
+type HubGoogleAccountsResp struct {
+	Accounts  []HubGoogleAccount `json:"accounts"`
+	ManageURL string             `json:"manageUrl"`
+}

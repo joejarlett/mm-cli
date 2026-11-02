@@ -65,7 +65,7 @@ func newEmailTrashCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -166,7 +166,7 @@ func newEmailSearchCmd() *cobra.Command {
 	c := &cobra.Command{Use: "search [query...]", Aliases: []string{"find"}, Short: "Search Gmail inbox", RunE: runEmailSearch}
 	c.Flags().String("q", "", "Gmail query string")
 	c.Flags().Int("max", 20, "Max results")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -518,6 +518,9 @@ func fmtRelative(iso string) string {
 			return iso
 		}
 	}
+	if s, ok := fmtFutureDate(t); ok {
+		return s
+	}
 	diff := time.Since(t)
 	switch {
 	case diff < time.Minute:
@@ -546,7 +549,7 @@ func newEmailAttachmentsCmd() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: runEmailAttachments,
 	}
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -570,7 +573,7 @@ func newEmailDownloadCmd() *cobra.Command {
 	c.Flags().Bool("all", false, "Download every attachment on the message")
 	c.Flags().Bool("include-inline", false, "Include inline parts (embedded images) too")
 	c.Flags().String("out", ".", "Directory to write into")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 

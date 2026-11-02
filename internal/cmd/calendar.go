@@ -32,7 +32,7 @@ func NewCalendarCmd() *cobra.Command {
 	}
 	cmd.Flags().Int("days", 7, "Window (default 7)")
 	cmd.Flags().String("q", "", "Filter by query string")
-	cmd.Flags().String("account", "", "Pick a linked Google account")
+	cmd.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 
 	cmd.AddCommand(newCalendarListCmd(), newCalendarNewCmd(), newCalendarGetCmd(), newCalendarDeleteCmd())
 	return cmd
@@ -48,7 +48,7 @@ func newCalendarListCmd() *cobra.Command {
 	}
 	cmd.Flags().Int("days", 7, "Window (default 7)")
 	cmd.Flags().String("q", "", "Filter by query string")
-	cmd.Flags().String("account", "", "Pick a linked Google account")
+	cmd.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return cmd
 }
 
@@ -142,7 +142,7 @@ func newCalendarNewCmd() *cobra.Command {
 	c.Flags().String("describe", "", "Description")
 	c.Flags().String("invite", "", "Comma-separated attendee emails")
 	c.Flags().String("notify", "", "Notify: all|externalOnly|none")
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -289,7 +289,7 @@ func newCalendarGetCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE:  runCalendarGet,
 	}
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	return c
 }
 
@@ -336,7 +336,7 @@ func newCalendarDeleteCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE:    runCalendarDelete,
 	}
-	c.Flags().String("account", "", "Pick a linked Google account")
+	c.Flags().String("account", "", "Pick a linked Google account (see mm accounts)")
 	c.Flags().String("notify", "none", "Notify attendees: all|externalOnly|none")
 	return c
 }
