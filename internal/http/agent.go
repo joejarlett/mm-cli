@@ -242,6 +242,9 @@ func (c *Client) Rpc(ctx context.Context, appURL, endpoint, feature, action stri
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
+	if len(bytes.TrimSpace(respBody)) > 0 && !json.Valid(respBody) {
+		return nonJSONError(feature, action, resp.StatusCode, respBody)
+	}
 	if resp.StatusCode/100 != 2 {
 		if msg := envelopeMessage(respBody); msg != "" {
 			return fmt.Errorf("%s.%s: %s", feature, action, msg)
@@ -252,6 +255,18 @@ func (c *Client) Rpc(ctx context.Context, appURL, endpoint, feature, action stri
 		return nil
 	}
 	return json.Unmarshal(respBody, out)
+}
+
+// nonJSONError reports a response that isn't from the app's dispatcher, usually
+// nginx's maintenance page. It can't say nothing was written: nginx turns 502,
+// 503 and 504 all into a 503 page, so a slow request whose write already landed
+// looks the same as a stopped app, and retrying that would log it twice.
+func nonJSONError(feature, action string, status int, body []byte) error {
+	const unconfirmed = "If this was a write, it isn't confirmed: check whether it landed before retrying."
+	if bytes.HasPrefix(bytes.TrimSpace(body), []byte("<")) {
+		return fmt.Errorf("%s.%s: hub unreachable (HTTP %d returned a web page, not JSON). %s", feature, action, status, unconfirmed)
+	}
+	return fmt.Errorf("%s.%s: non-JSON response (HTTP %d): %s. %s", feature, action, status, truncate(string(body), 200), unconfirmed)
 }
 
 // envelopeMessage reads the first error's text from either envelope: the
