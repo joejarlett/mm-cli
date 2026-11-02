@@ -1,6 +1,6 @@
 # Linked Google accounts, and future dates in `mm drive ls`
 
-**Status:** Built 2 Nov 2026. Two small, separate fixes, found the same day while testing Google services after a reconnect. `mm drive ls` order and `--account` with a printed slug checked live. The email column in `mm accounts` needs the next meta-me.uk deploy (690a7b6).
+**Status:** Done 2 Nov 2026 (mm-cli d405d57, meta-me.uk c6c89e2 and 690a7b6, deployed and checked live). Two small, separate fixes, found the same day while testing Google services after a reconnect.
 
 ## 1. Future-dated files show as "just now"
 
