@@ -369,21 +369,28 @@ func runDriveRemove(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runDriveList(cmd *cobra.Command, _ []string) error {
-	q, _ := cmd.Flags().GetString("q")
-	max, _ := cmd.Flags().GetInt("max")
-	account, _ := cmd.Flags().GetString("account")
-	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+// driveListRequest always sends max, the default included: left out, the hub
+// applies its own default (25), not the 20 the flag's help promises.
+func driveListRequest(q string, max int, account string) map[string]any {
 	req := map[string]any{}
 	if q != "" {
 		req["q"] = q
 	}
-	if max != 20 && max > 0 {
+	if max > 0 {
 		req["max"] = max
 	}
 	if account != "" {
 		req["accountSlug"] = account
 	}
+	return req
+}
+
+func runDriveList(cmd *cobra.Command, _ []string) error {
+	q, _ := cmd.Flags().GetString("q")
+	max, _ := cmd.Flags().GetInt("max")
+	account, _ := cmd.Flags().GetString("account")
+	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
+	req := driveListRequest(q, max, account)
 	client := http.New()
 	var resp wire.HubDriveListResp
 	if err := client.Hub(cmd.Context(), "drive", "list", req, &resp); err != nil {

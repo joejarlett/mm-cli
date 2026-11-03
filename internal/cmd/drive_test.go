@@ -98,3 +98,16 @@ func TestMimeForAsBinaryStillResolves(t *testing.T) {
 		}
 	}
 }
+
+func TestDriveListRequestSendsDefaultMax(t *testing.T) {
+	if got := driveListRequest("", 20, "")["max"]; got != 20 {
+		t.Errorf("default max = %v, want 20 sent to the hub", got)
+	}
+	if _, ok := driveListRequest("", 0, "")["max"]; ok {
+		t.Error("--max 0 should leave the hub's default")
+	}
+	req := driveListRequest("name contains 'x'", 5, "acc_1")
+	if req["q"] != "name contains 'x'" || req["max"] != 5 || req["accountSlug"] != "acc_1" {
+		t.Errorf("req = %v", req)
+	}
+}
