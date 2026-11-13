@@ -71,18 +71,35 @@ func newEmailTrashCmd() *cobra.Command {
 
 // runGmailSend proxies a real Gmail draft/send through the gateway (the
 // --from path). Plain body by default; HTML auto-detected.
-func runGmailSend(cmd *cobra.Command, draftOnly bool, to, subject, body, from string) error {
+// gmailBody picks the content and type for the Gmail path. --body wins and is
+// sniffed for HTML; --text alone is sent as plain (never sniffed, so a plain
+// "Name <addr>" line can't flip it to HTML). Neither set is an error: the
+// gateway would otherwise save an empty draft and report success.
+func gmailBody(body, text string) (content, bodyType string, err error) {
+	switch {
+	case body != "":
+		if strings.Contains(body, "<") && strings.Contains(body, ">") {
+			return body, "html", nil
+		}
+		return body, "plain", nil
+	case text != "":
+		return text, "plain", nil
+	default:
+		return "", "", fmt.Errorf("empty message: pass --body (HTML or plain) or --text (plain)")
+	}
+}
+
+func runGmailSend(cmd *cobra.Command, draftOnly bool, to, subject, body, text, from string) error {
 	wantJSON, _ := cmd.Root().PersistentFlags().GetBool("json")
 	if to == "" || subject == "" {
 		return fmt.Errorf("Usage: mm email %s --from <gmail> --to <addr> --subject <s> --body <text> [--cc a,b] [--bcc c]",
 			map[bool]string{true: "draft", false: "send"}[draftOnly])
 	}
-	req := map[string]any{"to": to, "subject": subject, "body": body, "from": from}
-	if strings.Contains(body, "<") && strings.Contains(body, ">") {
-		req["body_type"] = "html"
-	} else {
-		req["body_type"] = "plain"
+	content, bodyType, err := gmailBody(body, text)
+	if err != nil {
+		return err
 	}
+	req := map[string]any{"to": to, "subject": subject, "body": content, "body_type": bodyType, "from": from}
 	if cc, _ := cmd.Flags().GetString("cc"); cc != "" {
 		req["cc"] = splitCSV(cc)
 	}
@@ -178,7 +195,7 @@ func addSendFlags(c *cobra.Command) {
 	c.Flags().String("to", "", "Recipient (required)")
 	c.Flags().String("subject", "", "Subject line")
 	c.Flags().String("body", "", "Body (HTML or plain)")
-	c.Flags().String("text", "", "Plain-text body (default: stripped from --body)")
+	c.Flags().String("text", "", "Plain-text body (default: stripped from --body; with --from, used as the body when --body is empty)")
 	c.Flags().String("template", "", "Template name")
 	// --from routes to real Gmail (via the gateway) instead of the platform log.
 	c.Flags().String("from", "", "Send/draft from this Gmail address (real Gmail, bypasses the platform log)")
@@ -296,7 +313,7 @@ func runEmailSend(cmd *cobra.Command, _ []string, draftOnly bool) error {
 
 	// --from → real Gmail via the gateway, bypassing the platform email log.
 	if from != "" {
-		return runGmailSend(cmd, draftOnly, to, subject, body, from)
+		return runGmailSend(cmd, draftOnly, to, subject, body, text, from)
 	}
 
 	if to == "" || subject == "" || body == "" {
